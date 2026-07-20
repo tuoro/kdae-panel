@@ -20,12 +20,12 @@ const router = createRouter({
       path: '/',
       component: () => import('../layouts/AppLayout.vue'),
       children: [
-        { path: '', name: 'dashboard', component: () => import('../views/PlaceholderView.vue'), meta: { title: '运行概览' } },
-        { path: 'config', name: 'config', component: () => import('../views/PlaceholderView.vue'), meta: { title: '配置管理' } },
-        { path: 'schema', name: 'schema', component: () => import('../views/PlaceholderView.vue'), meta: { title: '配置能力' } },
-        { path: 'logs', name: 'logs', component: () => import('../views/PlaceholderView.vue'), meta: { title: '运行日志' } },
-        { path: 'backups', name: 'backups', component: () => import('../views/PlaceholderView.vue'), meta: { title: '配置备份' } },
-        { path: 'settings', name: 'settings', component: () => import('../views/PlaceholderView.vue'), meta: { title: '安全设置' } },
+        { path: '', name: 'dashboard', component: () => import('../views/DashboardView.vue'), meta: { title: '运行概览' } },
+        { path: 'config', name: 'config', component: () => import('../views/ConfigView.vue'), meta: { title: '配置管理' } },
+        { path: 'schema', name: 'schema', component: () => import('../views/SchemaView.vue'), meta: { title: '配置能力' } },
+        { path: 'logs', name: 'logs', component: () => import('../views/LogsView.vue'), meta: { title: '运行日志' } },
+        { path: 'backups', name: 'backups', component: () => import('../views/BackupsView.vue'), meta: { title: '配置备份' } },
+        { path: 'settings', name: 'settings', component: () => import('../views/SettingsView.vue'), meta: { title: '安全设置' } },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -54,4 +54,3 @@ router.beforeEach(async (to) => {
 })
 
 export default router
-

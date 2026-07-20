@@ -29,6 +29,11 @@
 - journald 近期日志的结构化读取；
 - SQLite 管理员账户、Argon2id 密码摘要和服务端会话；
 - SameSite/HttpOnly Cookie、CSRF 校验、同源检查和登录限速；
+- 首次初始化与登录页面、响应式管理布局；
+- systemd/dae 运行概览和受确认保护的服务操作；
+- 原始配置编辑、独立校验、保存重载与冲突提示；
+- 动态配置能力浏览、journald 日志筛选和备份恢复；
+- 管理员密码轮换与 sysdump 下载；
 - 内嵌 Web 资源；
 - Go 与 Vue 的基础构建流程。
 

@@ -49,6 +49,10 @@ export const useAuthStore = defineStore('auth', {
         this.clearSession()
       }
     },
+    async changePassword(currentPassword: string, newPassword: string) {
+      const status = await postJSON<AuthStatus>('/api/v1/auth/password', { currentPassword, newPassword })
+      this.applyStatus(status)
+    },
     clearSession() {
       this.loaded = true
       this.authenticated = false
@@ -58,4 +62,3 @@ export const useAuthStore = defineStore('auth', {
     },
   },
 })
-
