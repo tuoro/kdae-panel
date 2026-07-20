@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/tuoro/kdae-panel/internal/configstore"
 	"github.com/tuoro/kdae-panel/internal/dae"
 	"github.com/tuoro/kdae-panel/internal/webui"
 )
@@ -20,11 +23,40 @@ type DaeService interface {
 	Outline(ctx context.Context) (dae.Outline, error)
 }
 
+type ConfigurationService interface {
+	Read(ctx context.Context) (configstore.Document, error)
+	Validate(ctx context.Context, content string) error
+	Save(ctx context.Context, content, expectedHash string, apply bool) (configstore.SaveResult, error)
+	ListBackups(ctx context.Context) ([]configstore.Backup, error)
+	Restore(ctx context.Context, backupID, expectedHash string, apply bool) (configstore.SaveResult, error)
+}
+
+type Dependencies struct {
+	Dae           DaeService
+	Configuration ConfigurationService
+}
+
 func New(cfg Config, logger *slog.Logger) (*App, error) {
-	return NewWithDae(cfg, logger, dae.NewClient(cfg.DaeBinary))
+	cfg = cfg.withDefaults()
+	daeClient := dae.NewClient(cfg.DaeBinary)
+	configuration, err := configstore.NewManager(cfg.DaeConfigPath, cfg.BackupDir, daeClient)
+	if err != nil {
+		return nil, fmt.Errorf("初始化配置管理器: %w", err)
+	}
+	return NewWithDependencies(cfg, logger, Dependencies{
+		Dae:           daeClient,
+		Configuration: configuration,
+	})
 }
 
 func NewWithDae(cfg Config, logger *slog.Logger, daeService DaeService) (*App, error) {
+	return NewWithDependencies(cfg, logger, Dependencies{Dae: daeService})
+}
+
+func NewWithDependencies(cfg Config, logger *slog.Logger, dependencies Dependencies) (*App, error) {
+	if dependencies.Dae == nil {
+		return nil, errors.New("dae 服务不能为空")
+	}
 	router := http.NewServeMux()
 	router.HandleFunc("GET /api/v1/health", func(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]any{
@@ -33,16 +65,17 @@ func NewWithDae(cfg Config, logger *slog.Logger, daeService DaeService) (*App, e
 		})
 	})
 	router.HandleFunc("GET /api/v1/dae/capabilities", func(writer http.ResponseWriter, request *http.Request) {
-		writeJSON(writer, http.StatusOK, daeService.Inspect(request.Context()))
+		writeJSON(writer, http.StatusOK, dependencies.Dae.Inspect(request.Context()))
 	})
 	router.HandleFunc("GET /api/v1/dae/outline", func(writer http.ResponseWriter, request *http.Request) {
-		outline, err := daeService.Outline(request.Context())
+		outline, err := dependencies.Dae.Outline(request.Context())
 		if err != nil {
 			writeAPIError(writer, http.StatusServiceUnavailable, "dae_outline_unavailable", err.Error())
 			return
 		}
 		writeJSON(writer, http.StatusOK, outline)
 	})
+	registerConfigurationRoutes(router, dependencies.Configuration)
 	router.Handle("/", webui.Handler())
 
 	return &App{handler: recoverer(requestLogger(logger)(router), logger)}, nil

@@ -13,6 +13,11 @@ import (
 
 const defaultTimeout = 15 * time.Second
 
+const (
+	validateTimeout = 45 * time.Second
+	reloadTimeout   = 75 * time.Second
+)
+
 type Client struct {
 	binary  string
 	runner  command.Runner
@@ -111,8 +116,28 @@ func (c *Client) Outline(ctx context.Context) (Outline, error) {
 	return outline, nil
 }
 
+func (c *Client) Validate(ctx context.Context, configPath string) error {
+	result, err := c.runFor(ctx, max(c.timeout, validateTimeout), "validate", "-c", configPath)
+	if err != nil {
+		return fmt.Errorf("dae 配置校验失败: %s", describeCommandError(err, result))
+	}
+	return nil
+}
+
+func (c *Client) Reload(ctx context.Context) error {
+	result, err := c.runFor(ctx, max(c.timeout, reloadTimeout), "reload")
+	if err != nil {
+		return fmt.Errorf("dae 重载失败: %s", describeCommandError(err, result))
+	}
+	return nil
+}
+
 func (c *Client) run(ctx context.Context, args ...string) (command.Result, error) {
-	commandCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	return c.runFor(ctx, c.timeout, args...)
+}
+
+func (c *Client) runFor(ctx context.Context, timeout time.Duration, args ...string) (command.Result, error) {
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return c.runner.Run(commandCtx, c.binary, args...)
 }

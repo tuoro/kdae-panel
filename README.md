@@ -21,6 +21,9 @@
 - `/api/v1/dae/capabilities` 自动探测 dae 版本和公开命令；
 - `/api/v1/dae/outline` 转发当前 dae 的动态配置结构；
 - 命令超时及输出大小限制，所有调用均绕过 Shell；
+- 原始 `.dae` 配置读取、独立校验、并发冲突检测和安全保存；
+- 保存前备份、原子替换以及 `dae reload` 失败后的磁盘回滚；
+- 配置历史列表与指定备份恢复；
 - 内嵌 Web 资源；
 - Go 与 Vue 的基础构建流程。
 
@@ -47,6 +50,16 @@ KDAE_PANEL_LISTEN=0.0.0.0:2023 kdae-panel
 kdae-panel --dae-binary /usr/bin/dae
 KDAE_PANEL_DAE_BINARY=/usr/local/bin/dae kdae-panel
 ```
+
+配置相关路径：
+
+```bash
+kdae-panel \
+  --dae-config /etc/dae/config.dae \
+  --backup-dir /var/lib/kdae-panel/backups
+```
+
+对应环境变量为 `KDAE_PANEL_DAE_CONFIG` 和 `KDAE_PANEL_BACKUP_DIR`。
 
 ## 许可证
 

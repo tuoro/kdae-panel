@@ -28,6 +28,8 @@ func run() error {
 	cfg := app.DefaultConfig()
 	listen := flag.String("listen", envOr("KDAE_PANEL_LISTEN", cfg.ListenAddress), "HTTP 监听地址")
 	daeBinary := flag.String("dae-binary", envOr("KDAE_PANEL_DAE_BINARY", cfg.DaeBinary), "dae 可执行文件路径")
+	daeConfig := flag.String("dae-config", envOr("KDAE_PANEL_DAE_CONFIG", cfg.DaeConfigPath), "dae 入口配置文件路径")
+	backupDir := flag.String("backup-dir", envOr("KDAE_PANEL_BACKUP_DIR", cfg.BackupDir), "配置备份目录")
 	showVersion := flag.Bool("version", false, "显示版本")
 	flag.Parse()
 
@@ -37,6 +39,8 @@ func run() error {
 	}
 	cfg.ListenAddress = *listen
 	cfg.DaeBinary = *daeBinary
+	cfg.DaeConfigPath = *daeConfig
+	cfg.BackupDir = *backupDir
 	cfg.Version = version
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
