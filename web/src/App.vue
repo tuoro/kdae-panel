@@ -1,18 +1,18 @@
 <script setup lang="ts">
-import { NCard, NConfigProvider, NLayout, NLayoutContent, NText, darkTheme } from 'naive-ui'
+import { NConfigProvider, NDialogProvider, NGlobalStyle, NMessageProvider, NNotificationProvider, darkTheme, zhCN, dateZhCN } from 'naive-ui'
+import { RouterView } from 'vue-router'
 </script>
 
 <template>
-  <NConfigProvider :theme="darkTheme">
-    <NLayout class="page">
-      <NLayoutContent content-style="min-height: 100vh; display: grid; place-items: center; padding: 24px;">
-        <NCard class="welcome" title="kdae-panel" bordered>
-          <NText depth="2">
-            工程基线已经启动。后续里程碑将接入 dae 能力探测、配置事务、服务管理和完整管理界面。
-          </NText>
-        </NCard>
-      </NLayoutContent>
-    </NLayout>
+  <NConfigProvider :theme="darkTheme" :locale="zhCN" :date-locale="dateZhCN">
+    <NGlobalStyle />
+    <NMessageProvider>
+      <NDialogProvider>
+        <NNotificationProvider>
+          <RouterView />
+        </NNotificationProvider>
+      </NDialogProvider>
+    </NMessageProvider>
   </NConfigProvider>
 </template>
 
