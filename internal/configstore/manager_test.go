@@ -15,6 +15,7 @@ type fakeController struct {
 	reloadCount      int
 	validateErr      error
 	reloadErr        error
+	onValidate       func()
 }
 
 func (c *fakeController) Validate(_ context.Context, configPath string) error {
@@ -23,6 +24,9 @@ func (c *fakeController) Validate(_ context.Context, configPath string) error {
 		return err
 	}
 	c.validatedContent = append(c.validatedContent, string(content))
+	if c.onValidate != nil {
+		c.onValidate()
+	}
 	if c.validateErr != nil || strings.Contains(string(content), "invalid") {
 		if c.validateErr != nil {
 			return c.validateErr
@@ -90,6 +94,29 @@ func TestSaveRejectsStaleHash(t *testing.T) {
 	_, err := manager.Save(context.Background(), "new", "stale-hash", false)
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("错误 = %v，期望配置冲突", err)
+	}
+}
+
+func TestSaveDetectsExternalChangeDuringValidation(t *testing.T) {
+	controller := &fakeController{}
+	manager, entryPath := newTestManager(t, "current", controller)
+	document, err := manager.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.onValidate = func() {
+		if err := os.WriteFile(entryPath, []byte("external change"), 0600); err != nil {
+			t.Fatalf("写入外部变更失败: %v", err)
+		}
+	}
+
+	_, err = manager.Save(context.Background(), "candidate", document.Hash, true)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("错误 = %v，期望配置冲突", err)
+	}
+	content, _ := os.ReadFile(entryPath)
+	if string(content) != "external change" {
+		t.Fatalf("外部变更被覆盖为 %q", content)
 	}
 }
 

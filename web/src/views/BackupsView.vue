@@ -2,7 +2,7 @@
 import { h, onMounted, ref } from 'vue'
 import { NButton, NCard, NDataTable, NIcon, NTag, NText, useDialog, useMessage, type DataTableColumns } from 'naive-ui'
 import { RefreshOutline, ReturnUpBackOutline } from '@vicons/ionicons5'
-import { getJSON, postJSON } from '../api/client'
+import { APIError, getJSON, postJSON } from '../api/client'
 import type { ConfigBackup, ConfigDocument, ConfigSaveResult } from '../types/api'
 import { formatBytes, formatDateTime, shortHash } from '../utils/format'
 
@@ -83,9 +83,14 @@ function confirmRestore(backup: ConfigBackup) {
 async function restore(backup: ConfigBackup) {
   restoring.value = backup.id
   try {
-    const current = await getJSON<ConfigDocument>('/api/v1/config')
+    let expectedHash = ''
+    try {
+      expectedHash = (await getJSON<ConfigDocument>('/api/v1/config')).hash
+    } catch (error) {
+      if (!(error instanceof APIError && error.status === 404)) throw error
+    }
     await postJSON<ConfigSaveResult>(`/api/v1/config/backups/${encodeURIComponent(backup.id)}/restore`, {
-      expectedHash: current.hash,
+      expectedHash,
       apply: true,
     })
     message.success('配置已恢复并完成无损重载')
@@ -123,4 +128,3 @@ onMounted(() => void load())
     </NCard>
   </div>
 </template>
-

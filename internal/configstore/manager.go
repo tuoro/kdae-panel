@@ -169,6 +169,18 @@ func (m *Manager) Save(ctx context.Context, content, expectedHash string, apply 
 	if err := m.control.Validate(ctx, tempPath); err != nil {
 		return SaveResult{}, &ValidationError{Cause: err}
 	}
+	latestContent, latestInfo, latestHash, latestExisted, err := m.readCurrentBytes()
+	if err != nil {
+		return SaveResult{}, err
+	}
+	if latestExisted != existed || latestHash != oldHash {
+		return SaveResult{}, ErrConflict
+	}
+	if latestExisted {
+		oldContent = latestContent
+		oldInfo = latestInfo
+		mode = latestInfo.Mode().Perm()
+	}
 
 	backupID := ""
 	if existed {

@@ -41,10 +41,12 @@ jobs:
           go test ./...
           go vet ./...
 
+      - name: 并发竞争检查
+        run: go test -race ./internal/app ./internal/auth ./internal/configstore ./internal/dae ./internal/host
+
       - name: Linux 构建
         env:
           CGO_ENABLED: '0'
           GOOS: linux
           GOARCH: amd64
         run: go build -trimpath -o bin/kdae-panel ./cmd/kdae-panel
-
