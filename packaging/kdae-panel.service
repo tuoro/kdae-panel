@@ -1,0 +1,45 @@
+[Unit]
+Description=kdae-panel Web Management Service
+Documentation=https://github.com/tuoro/kdae-panel
+After=network-online.target dae.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-/etc/kdae-panel/kdae-panel.env
+ExecStart=/usr/bin/kdae-panel
+Restart=on-failure
+RestartSec=3s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+UMask=0077
+
+# 面板需要管理 dae、写入配置并通过 systemd 控制服务；其余系统面尽量收紧。
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_KILL CAP_NET_ADMIN
+AmbientCapabilities=CAP_DAC_OVERRIDE CAP_KILL CAP_NET_ADMIN
+ReadWritePaths=/etc/dae /var/lib/kdae-panel /run
+
+[Install]
+WantedBy=multi-user.target
+

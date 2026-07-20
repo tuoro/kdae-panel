@@ -5,6 +5,7 @@ Thumbs.db
 
 # Go
 /bin/
+/dist/
 *.test
 coverage.out
 
