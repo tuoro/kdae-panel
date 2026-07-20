@@ -72,8 +72,11 @@ func run() error {
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
 		Handler:           application.Handler(),
+		ReadTimeout:       30 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      180 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
