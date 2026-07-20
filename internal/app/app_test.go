@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tuoro/kdae-panel/internal/auth"
 	"github.com/tuoro/kdae-panel/internal/configstore"
 	"github.com/tuoro/kdae-panel/internal/dae"
 	"github.com/tuoro/kdae-panel/internal/host"
@@ -73,6 +74,39 @@ type stubHostService struct {
 	err     error
 }
 
+type stubAuthenticationService struct {
+	initialized bool
+	session     auth.Session
+	err         error
+}
+
+func (s *stubAuthenticationService) Initialized(_ context.Context) (bool, error) {
+	return s.initialized, s.err
+}
+
+func (s *stubAuthenticationService) Setup(_ context.Context, _, _ string) (auth.Session, error) {
+	return s.session, s.err
+}
+
+func (s *stubAuthenticationService) Login(_ context.Context, _, _ string) (auth.Session, error) {
+	return s.session, s.err
+}
+
+func (s *stubAuthenticationService) GetSession(_ context.Context, token string) (auth.Session, error) {
+	if s.err != nil || token != s.session.Token {
+		return auth.Session{}, auth.ErrInvalidSession
+	}
+	return s.session, nil
+}
+
+func (s *stubAuthenticationService) Logout(_ context.Context, _ string) error {
+	return s.err
+}
+
+func (s *stubAuthenticationService) ChangePassword(_ context.Context, _ int64, _, _ string) (auth.Session, error) {
+	return s.session, s.err
+}
+
 func (s *stubHostService) Status(_ context.Context) (host.Status, error) {
 	return s.status, s.err
 }
@@ -87,7 +121,11 @@ func (s *stubHostService) Logs(_ context.Context, _ int) ([]host.LogEntry, error
 }
 
 func TestHealth(t *testing.T) {
-	application, err := New(Config{Version: "test-version"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	application, err := NewWithDae(
+		Config{Version: "test-version"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		stubDaeService{},
+	)
 	if err != nil {
 		t.Fatalf("初始化应用失败: %v", err)
 	}
@@ -201,5 +239,70 @@ func TestServiceRestartAction(t *testing.T) {
 	}
 	if len(hostService.actions) != 1 || hostService.actions[0] != host.ActionRestart {
 		t.Fatalf("服务动作异常: %v", hostService.actions)
+	}
+}
+
+func TestAuthenticationProtectsAPIAndChecksCSRF(t *testing.T) {
+	session := auth.Session{
+		Token:     "session-token",
+		CSRFToken: "csrf-token",
+		ExpiresAt: time.Now().Add(time.Hour),
+		User:      auth.User{ID: 1, Username: "admin"},
+	}
+	authService := &stubAuthenticationService{initialized: true, session: session}
+	configuration := stubConfigurationService{}
+	application, err := NewWithDependencies(
+		Config{Version: "test-panel"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Dependencies{
+			Dae:            stubDaeService{},
+			Configuration:  configuration,
+			Authentication: authService,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	unauthorized := httptest.NewRecorder()
+	application.Handler().ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/config", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("未登录状态码 = %d", unauthorized.Code)
+	}
+
+	withoutCSRFRequest := httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(`{"content":"test"}`))
+	withoutCSRFRequest.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.Token})
+	withoutCSRF := httptest.NewRecorder()
+	application.Handler().ServeHTTP(withoutCSRF, withoutCSRFRequest)
+	if withoutCSRF.Code != http.StatusForbidden {
+		t.Fatalf("缺少 CSRF 状态码 = %d，响应 = %s", withoutCSRF.Code, withoutCSRF.Body.String())
+	}
+
+	validRequest := httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(`{"content":"test"}`))
+	validRequest.Host = "panel.example"
+	validRequest.Header.Set("Origin", "https://panel.example")
+	validRequest.Header.Set("X-CSRF-Token", session.CSRFToken)
+	validRequest.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.Token})
+	validResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(validResponse, validRequest)
+	if validResponse.Code != http.StatusOK {
+		t.Fatalf("有效请求状态码 = %d，响应 = %s", validResponse.Code, validResponse.Body.String())
+	}
+}
+
+func TestLoginLimiterBlocksRepeatedFailures(t *testing.T) {
+	limiter := newLoginLimiter()
+	now := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
+	limiter.now = func() time.Time { return now }
+	for range 5 {
+		limiter.Failure("127.0.0.1")
+	}
+	retryAfter, allowed := limiter.Allow("127.0.0.1")
+	if allowed || retryAfter != 15*time.Minute {
+		t.Fatalf("限速结果异常: allowed=%v retryAfter=%v", allowed, retryAfter)
+	}
+	limiter.Success("127.0.0.1")
+	if _, allowed := limiter.Allow("127.0.0.1"); !allowed {
+		t.Fatal("成功登录后应该清除限速状态")
 	}
 }

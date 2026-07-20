@@ -27,6 +27,8 @@
 - systemd 服务状态、启动、停止和重启；
 - dae 无损重载、暂停与 sysdump 诊断；
 - journald 近期日志的结构化读取；
+- SQLite 管理员账户、Argon2id 密码摘要和服务端会话；
+- SameSite/HttpOnly Cookie、CSRF 校验、同源检查和登录限速；
 - 内嵌 Web 资源；
 - Go 与 Vue 的基础构建流程。
 
@@ -63,6 +65,16 @@ kdae-panel \
 ```
 
 对应环境变量为 `KDAE_PANEL_DAE_CONFIG` 和 `KDAE_PANEL_BACKUP_DIR`。
+
+认证数据默认保存到 `/var/lib/kdae-panel/panel.db`：
+
+```bash
+kdae-panel \
+  --database /var/lib/kdae-panel/panel.db \
+  --session-ttl 12h
+```
+
+通过 HTTPS 反向代理公开面板时，必须增加 `--secure-cookie`，对应环境变量为 `KDAE_PANEL_SECURE_COOKIE=true`。
 
 自定义 systemd 单元和工具路径：
 

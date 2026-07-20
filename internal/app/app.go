@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/tuoro/kdae-panel/internal/auth"
 	"github.com/tuoro/kdae-panel/internal/configstore"
 	"github.com/tuoro/kdae-panel/internal/dae"
 	"github.com/tuoro/kdae-panel/internal/host"
@@ -17,6 +19,7 @@ import (
 
 type App struct {
 	handler http.Handler
+	closers []io.Closer
 }
 
 type DaeService interface {
@@ -36,9 +39,19 @@ type ConfigurationService interface {
 }
 
 type Dependencies struct {
-	Dae           DaeService
-	Configuration ConfigurationService
-	Host          HostService
+	Dae            DaeService
+	Configuration  ConfigurationService
+	Host           HostService
+	Authentication AuthenticationService
+}
+
+type AuthenticationService interface {
+	Initialized(ctx context.Context) (bool, error)
+	Setup(ctx context.Context, username, password string) (auth.Session, error)
+	Login(ctx context.Context, username, password string) (auth.Session, error)
+	GetSession(ctx context.Context, token string) (auth.Session, error)
+	Logout(ctx context.Context, token string) error
+	ChangePassword(ctx context.Context, userID int64, currentPassword, newPassword string) (auth.Session, error)
 }
 
 type HostService interface {
@@ -58,11 +71,22 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("初始化主机服务管理器: %w", err)
 	}
-	return NewWithDependencies(cfg, logger, Dependencies{
-		Dae:           daeClient,
-		Configuration: configuration,
-		Host:          hostManager,
+	authStore, err := auth.Open(cfg.DatabasePath, cfg.SessionTTL)
+	if err != nil {
+		return nil, fmt.Errorf("初始化认证服务: %w", err)
+	}
+	application, err := NewWithDependencies(cfg, logger, Dependencies{
+		Dae:            daeClient,
+		Configuration:  configuration,
+		Host:           hostManager,
+		Authentication: authStore,
 	})
+	if err != nil {
+		_ = authStore.Close()
+		return nil, err
+	}
+	application.closers = append(application.closers, authStore)
+	return application, nil
 }
 
 func NewWithDae(cfg Config, logger *slog.Logger, daeService DaeService) (*App, error) {
@@ -93,9 +117,17 @@ func NewWithDependencies(cfg Config, logger *slog.Logger, dependencies Dependenc
 	})
 	registerConfigurationRoutes(router, dependencies.Configuration)
 	registerServiceRoutes(router, dependencies.Dae, dependencies.Host)
+	registerAuthenticationRoutes(router, dependencies.Authentication, cfg.SecureCookie)
 	router.Handle("/", webui.Handler())
 
-	return &App{handler: recoverer(requestLogger(logger)(router), logger)}, nil
+	var handler http.Handler = router
+	if dependencies.Authentication != nil {
+		handler = authenticationMiddleware(handler, dependencies.Authentication, cfg.SecureCookie)
+	}
+	handler = securityHeaders(handler)
+	handler = recoverer(handler, logger)
+	handler = requestLogger(logger)(handler)
+	return &App{handler: handler}, nil
 }
 
 func writeAPIError(writer http.ResponseWriter, status int, code, message string) {
@@ -109,6 +141,14 @@ func writeAPIError(writer http.ResponseWriter, status int, code, message string)
 
 func (a *App) Handler() http.Handler {
 	return a.handler
+}
+
+func (a *App) Close() error {
+	var result error
+	for index := len(a.closers) - 1; index >= 0; index-- {
+		result = errors.Join(result, a.closers[index].Close())
+	}
+	return result
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {

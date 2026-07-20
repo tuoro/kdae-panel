@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -33,6 +34,9 @@ func run() error {
 	serviceName := flag.String("service-name", envOr("KDAE_PANEL_SERVICE_NAME", cfg.ServiceName), "dae systemd 服务名")
 	systemctl := flag.String("systemctl", envOr("KDAE_PANEL_SYSTEMCTL", cfg.Systemctl), "systemctl 可执行文件路径")
 	journalctl := flag.String("journalctl", envOr("KDAE_PANEL_JOURNALCTL", cfg.Journalctl), "journalctl 可执行文件路径")
+	databasePath := flag.String("database", envOr("KDAE_PANEL_DATABASE", cfg.DatabasePath), "面板 SQLite 数据库路径")
+	sessionTTL := flag.Duration("session-ttl", envDuration("KDAE_PANEL_SESSION_TTL", cfg.SessionTTL), "登录会话有效期")
+	secureCookie := flag.Bool("secure-cookie", envBool("KDAE_PANEL_SECURE_COOKIE", cfg.SecureCookie), "仅通过 HTTPS 发送登录 Cookie")
 	showVersion := flag.Bool("version", false, "显示版本")
 	flag.Parse()
 
@@ -47,6 +51,9 @@ func run() error {
 	cfg.ServiceName = *serviceName
 	cfg.Systemctl = *systemctl
 	cfg.Journalctl = *journalctl
+	cfg.DatabasePath = *databasePath
+	cfg.SessionTTL = *sessionTTL
+	cfg.SecureCookie = *secureCookie
 	cfg.Version = version
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -56,6 +63,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("初始化应用: %w", err)
 	}
+	defer func() {
+		if err := application.Close(); err != nil {
+			logger.Error("关闭应用资源失败", "error", err)
+		}
+	}()
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddress,
@@ -96,4 +108,28 @@ func envOr(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envDuration(key string, fallback time.Duration) time.Duration {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

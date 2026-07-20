@@ -1,5 +1,7 @@
 package app
 
+import "time"
+
 type Config struct {
 	ListenAddress string
 	Version       string
@@ -9,6 +11,9 @@ type Config struct {
 	ServiceName   string
 	Systemctl     string
 	Journalctl    string
+	DatabasePath  string
+	SessionTTL    time.Duration
+	SecureCookie  bool
 }
 
 func DefaultConfig() Config {
@@ -21,6 +26,8 @@ func DefaultConfig() Config {
 		ServiceName:   "dae",
 		Systemctl:     "systemctl",
 		Journalctl:    "journalctl",
+		DatabasePath:  "/var/lib/kdae-panel/panel.db",
+		SessionTTL:    12 * time.Hour,
 	}
 }
 
@@ -49,6 +56,12 @@ func (c Config) withDefaults() Config {
 	}
 	if c.Journalctl == "" {
 		c.Journalctl = defaults.Journalctl
+	}
+	if c.DatabasePath == "" {
+		c.DatabasePath = defaults.DatabasePath
+	}
+	if c.SessionTTL <= 0 {
+		c.SessionTTL = defaults.SessionTTL
 	}
 	return c
 }
