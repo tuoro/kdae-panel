@@ -2,94 +2,98 @@
 
 `kdae-panel` 是面向 [dae](https://github.com/daeuniverse/dae) 及其兼容分支的零侵入式 Web 管理面板。
 
-项目不引用 dae 的内部 Go 包，也不读取其内部 eBPF Map，而是只通过公开命令、配置文件、systemd 和 journald 完成管理。这样可以最大限度降低 dae 上游升级带来的适配成本。
+面板不引用 dae 的内部 Go 包，也不读取其内部 eBPF Map。它只依赖 dae 的公开命令、`.dae` 配置文件、systemd 和 journald，因此 dae 内部重构、协议实现变化和普通配置字段新增通常不需要同步修改面板。
 
-## 设计原则
+## 功能
 
-- 通过 `dae export outline` 动态发现当前版本的配置能力。
-- 通过 `dae validate` 校验配置，面板不自行复制 dae 的完整语法规则。
-- 配置写入采用临时文件、备份、原子替换和失败回滚。
-- 只执行预定义的系统操作，不向 Web 请求暴露任意 Shell 执行能力。
-- 前端编译后嵌入 Go 二进制，部署机器不需要 Node.js。
-
-## 当前状态
-
-项目处于主动开发阶段。当前已提供：
-
-- Go HTTP 服务与优雅退出；
-- `/api/v1/health` 健康检查；
-- `/api/v1/dae/capabilities` 自动探测 dae 版本和公开命令；
-- `/api/v1/dae/outline` 转发当前 dae 的动态配置结构；
-- 命令超时及输出大小限制，所有调用均绕过 Shell；
-- 原始 `.dae` 配置读取、独立校验、并发冲突检测和安全保存；
-- 保存前备份、原子替换以及 `dae reload` 失败后的磁盘回滚；
-- 配置历史列表与指定备份恢复；
+- 通过 `dae export outline` 动态发现当前版本的配置结构；
 - systemd 服务状态、启动、停止和重启；
-- dae 无损重载、暂停与 sysdump 诊断；
-- journald 近期日志的结构化读取；
+- dae 无损重载、暂停和 sysdump 诊断；
+- 原始配置编辑、独立校验、并发冲突检测和事务保存；
+- 保存前备份、原子替换及重载失败后的磁盘回滚；
+- 配置历史浏览与指定版本恢复；
+- journald 结构化日志浏览、搜索和级别筛选；
 - SQLite 管理员账户、Argon2id 密码摘要和服务端会话；
 - SameSite/HttpOnly Cookie、CSRF 校验、同源检查和登录限速；
-- 首次初始化与登录页面、响应式管理布局；
-- systemd/dae 运行概览和受确认保护的服务操作；
-- 原始配置编辑、独立校验、保存重载与冲突提示；
-- 动态配置能力浏览、journald 日志筛选和备份恢复；
-- 管理员密码轮换与 sysdump 下载；
-- 内嵌 Web 资源；
-- Go 与 Vue 的基础构建流程。
+- Vue 3 响应式管理界面，前端资源嵌入单个 Go 二进制；
+- Linux `amd64`、`arm64` 和 `riscv64` 发布构建。
 
-## 本地开发
+## 快速安装
 
-需要 Go 1.24+ 和 Node.js 22+。
+依赖 Go 1.24+、Node.js 22+，运行环境需要 systemd，并预先安装可正常运行的 dae。
 
 ```bash
-npm --prefix web install
-npm --prefix web run build
-go run ./cmd/kdae-panel
+git clone https://github.com/tuoro/kdae-panel.git
+cd kdae-panel
+npm ci --prefix web
+make build
+sudo ./scripts/install.sh
 ```
 
-默认监听 `127.0.0.1:2023`，可通过参数或环境变量调整：
+默认只监听 `127.0.0.1:2023`。首次访问建议使用 SSH 端口转发：
 
 ```bash
-kdae-panel --listen 0.0.0.0:2023
-KDAE_PANEL_LISTEN=0.0.0.0:2023 kdae-panel
+ssh -L 2023:127.0.0.1:2023 root@router.example
 ```
 
-指定 dae 二进制：
+然后打开 `http://127.0.0.1:2023` 创建管理员账户。
+
+## 开发
 
 ```bash
-kdae-panel --dae-binary /usr/bin/dae
-KDAE_PANEL_DAE_BINARY=/usr/local/bin/dae kdae-panel
+npm install --prefix web
+npm run build --prefix web
+go run ./cmd/kdae-panel \
+  --database ./data/panel.db \
+  --backup-dir ./data/backups \
+  --dae-config ./data/config.dae
 ```
 
-配置相关路径：
+前后端分离开发：
 
 ```bash
-kdae-panel \
-  --dae-config /etc/dae/config.dae \
-  --backup-dir /var/lib/kdae-panel/backups
+# 终端一
+go run ./cmd/kdae-panel --database ./data/panel.db
+
+# 终端二，Vite 会代理 /api 到 127.0.0.1:2023
+npm run dev --prefix web
 ```
 
-对应环境变量为 `KDAE_PANEL_DAE_CONFIG` 和 `KDAE_PANEL_BACKUP_DIR`。
-
-认证数据默认保存到 `/var/lib/kdae-panel/panel.db`：
+验证全部代码：
 
 ```bash
-kdae-panel \
-  --database /var/lib/kdae-panel/panel.db \
-  --session-ttl 12h
+npm run typecheck --prefix web
+npm run build --prefix web
+go test ./...
+go vet ./...
 ```
 
-通过 HTTPS 反向代理公开面板时，必须增加 `--secure-cookie`，对应环境变量为 `KDAE_PANEL_SECURE_COOKIE=true`。
+## 上游兼容
 
-自定义 systemd 单元和工具路径：
+面板启动后直接执行当前安装的 dae：
 
-```bash
-kdae-panel \
-  --service-name dae \
-  --systemctl /usr/bin/systemctl \
-  --journalctl /usr/bin/journalctl
+```text
+dae --version
+dae --help
+dae export outline
+dae validate -c <候选配置>
+dae reload
+dae suspend
+dae sysdump
 ```
+
+配置字段和默认值来自 `export outline`，配置正确性以 `validate` 的结果为准。面板不会复制 dae 的完整配置模型，也不会将未知配置字段静默删除。
+
+完全零适配无法覆盖上游主动删除公开命令或改变命令语义的情况。CI 会持续验证面板自身契约；建议对生产环境的 dae 版本进行固定，并在升级前使用新二进制验证现有配置。
+
+## 文档
+
+- [架构与兼容策略](docs/architecture.md)
+- [安装部署与升级](docs/deployment.md)
+- [HTTP API](docs/api.md)
+- [安全策略](SECURITY.md)
 
 ## 许可证
 
 GNU Affero General Public License v3.0，详见 [LICENSE](LICENSE)。
+
