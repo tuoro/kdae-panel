@@ -14,10 +14,13 @@
 
 ## 当前状态
 
-项目处于主动开发阶段。现有工程基线提供：
+项目处于主动开发阶段。当前已提供：
 
 - Go HTTP 服务与优雅退出；
 - `/api/v1/health` 健康检查；
+- `/api/v1/dae/capabilities` 自动探测 dae 版本和公开命令；
+- `/api/v1/dae/outline` 转发当前 dae 的动态配置结构；
+- 命令超时及输出大小限制，所有调用均绕过 Shell；
 - 内嵌 Web 资源；
 - Go 与 Vue 的基础构建流程。
 
@@ -38,7 +41,13 @@ kdae-panel --listen 0.0.0.0:2023
 KDAE_PANEL_LISTEN=0.0.0.0:2023 kdae-panel
 ```
 
+指定 dae 二进制：
+
+```bash
+kdae-panel --dae-binary /usr/bin/dae
+KDAE_PANEL_DAE_BINARY=/usr/local/bin/dae kdae-panel
+```
+
 ## 许可证
 
 GNU Affero General Public License v3.0，详见 [LICENSE](LICENSE)。
-

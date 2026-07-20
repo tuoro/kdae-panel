@@ -27,6 +27,7 @@ func main() {
 func run() error {
 	cfg := app.DefaultConfig()
 	listen := flag.String("listen", envOr("KDAE_PANEL_LISTEN", cfg.ListenAddress), "HTTP 监听地址")
+	daeBinary := flag.String("dae-binary", envOr("KDAE_PANEL_DAE_BINARY", cfg.DaeBinary), "dae 可执行文件路径")
 	showVersion := flag.Bool("version", false, "显示版本")
 	flag.Parse()
 
@@ -35,6 +36,7 @@ func run() error {
 		return nil
 	}
 	cfg.ListenAddress = *listen
+	cfg.DaeBinary = *daeBinary
 	cfg.Version = version
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
