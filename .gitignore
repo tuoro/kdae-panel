@@ -1,0 +1,19 @@
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Go
+/bin/
+*.test
+coverage.out
+
+# 前端
+/web/node_modules/
+/web/dist/
+*.log
+*.tsbuildinfo
+
+# 本地运行数据
+/data/
+/.env
