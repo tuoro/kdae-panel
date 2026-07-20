@@ -132,6 +132,26 @@ func (c *Client) Reload(ctx context.Context) error {
 	return nil
 }
 
+func (c *Client) Suspend(ctx context.Context, abort bool) error {
+	args := []string{"suspend"}
+	if abort {
+		args = append(args, "--abort")
+	}
+	result, err := c.runFor(ctx, max(c.timeout, validateTimeout), args...)
+	if err != nil {
+		return fmt.Errorf("dae 暂停失败: %s", describeCommandError(err, result))
+	}
+	return nil
+}
+
+func (c *Client) Sysdump(ctx context.Context) (string, error) {
+	result, err := c.runFor(ctx, max(c.timeout, validateTimeout), "sysdump")
+	if err != nil {
+		return "", fmt.Errorf("dae 系统诊断失败: %s", describeCommandError(err, result))
+	}
+	return result.Stdout, nil
+}
+
 func (c *Client) run(ctx context.Context, args ...string) (command.Result, error) {
 	return c.runFor(ctx, c.timeout, args...)
 }

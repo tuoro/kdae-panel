@@ -6,6 +6,9 @@ type Config struct {
 	DaeBinary     string
 	DaeConfigPath string
 	BackupDir     string
+	ServiceName   string
+	Systemctl     string
+	Journalctl    string
 }
 
 func DefaultConfig() Config {
@@ -15,6 +18,9 @@ func DefaultConfig() Config {
 		DaeBinary:     "dae",
 		DaeConfigPath: "/etc/dae/config.dae",
 		BackupDir:     "/var/lib/kdae-panel/backups",
+		ServiceName:   "dae",
+		Systemctl:     "systemctl",
+		Journalctl:    "journalctl",
 	}
 }
 
@@ -34,6 +40,15 @@ func (c Config) withDefaults() Config {
 	}
 	if c.BackupDir == "" {
 		c.BackupDir = defaults.BackupDir
+	}
+	if c.ServiceName == "" {
+		c.ServiceName = defaults.ServiceName
+	}
+	if c.Systemctl == "" {
+		c.Systemctl = defaults.Systemctl
+	}
+	if c.Journalctl == "" {
+		c.Journalctl = defaults.Journalctl
 	}
 	return c
 }

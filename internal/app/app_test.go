@@ -13,6 +13,7 @@ import (
 
 	"github.com/tuoro/kdae-panel/internal/configstore"
 	"github.com/tuoro/kdae-panel/internal/dae"
+	"github.com/tuoro/kdae-panel/internal/host"
 )
 
 type stubDaeService struct {
@@ -52,6 +53,37 @@ func (s stubDaeService) Inspect(_ context.Context) dae.Report {
 
 func (s stubDaeService) Outline(_ context.Context) (dae.Outline, error) {
 	return s.outline, s.err
+}
+
+func (s stubDaeService) Reload(_ context.Context) error {
+	return s.err
+}
+
+func (s stubDaeService) Suspend(_ context.Context, _ bool) error {
+	return s.err
+}
+
+func (s stubDaeService) Sysdump(_ context.Context) (string, error) {
+	return "test dump", s.err
+}
+
+type stubHostService struct {
+	status  host.Status
+	actions []host.Action
+	err     error
+}
+
+func (s *stubHostService) Status(_ context.Context) (host.Status, error) {
+	return s.status, s.err
+}
+
+func (s *stubHostService) Action(_ context.Context, action host.Action) error {
+	s.actions = append(s.actions, action)
+	return s.err
+}
+
+func (s *stubHostService) Logs(_ context.Context, _ int) ([]host.LogEntry, error) {
+	return []host.LogEntry{}, s.err
 }
 
 func TestHealth(t *testing.T) {
@@ -146,5 +178,28 @@ func TestConfigurationConflictResponse(t *testing.T) {
 	}
 	if response.Error.Code != "configuration_conflict" {
 		t.Fatalf("错误码 = %q", response.Error.Code)
+	}
+}
+
+func TestServiceRestartAction(t *testing.T) {
+	hostService := &stubHostService{}
+	application, err := NewWithDependencies(
+		Config{Version: "test-panel"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Dependencies{Dae: stubDaeService{}, Host: hostService},
+	)
+	if err != nil {
+		t.Fatalf("初始化应用失败: %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/service/actions/restart", nil)
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d，响应 = %s", recorder.Code, recorder.Body.String())
+	}
+	if len(hostService.actions) != 1 || hostService.actions[0] != host.ActionRestart {
+		t.Fatalf("服务动作异常: %v", hostService.actions)
 	}
 }

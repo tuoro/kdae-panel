@@ -11,6 +11,7 @@ import (
 
 	"github.com/tuoro/kdae-panel/internal/configstore"
 	"github.com/tuoro/kdae-panel/internal/dae"
+	"github.com/tuoro/kdae-panel/internal/host"
 	"github.com/tuoro/kdae-panel/internal/webui"
 )
 
@@ -21,6 +22,9 @@ type App struct {
 type DaeService interface {
 	Inspect(ctx context.Context) dae.Report
 	Outline(ctx context.Context) (dae.Outline, error)
+	Reload(ctx context.Context) error
+	Suspend(ctx context.Context, abort bool) error
+	Sysdump(ctx context.Context) (string, error)
 }
 
 type ConfigurationService interface {
@@ -34,6 +38,13 @@ type ConfigurationService interface {
 type Dependencies struct {
 	Dae           DaeService
 	Configuration ConfigurationService
+	Host          HostService
+}
+
+type HostService interface {
+	Status(ctx context.Context) (host.Status, error)
+	Action(ctx context.Context, action host.Action) error
+	Logs(ctx context.Context, limit int) ([]host.LogEntry, error)
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -43,9 +54,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("初始化配置管理器: %w", err)
 	}
+	hostManager, err := host.NewManager(cfg.ServiceName, cfg.Systemctl, cfg.Journalctl)
+	if err != nil {
+		return nil, fmt.Errorf("初始化主机服务管理器: %w", err)
+	}
 	return NewWithDependencies(cfg, logger, Dependencies{
 		Dae:           daeClient,
 		Configuration: configuration,
+		Host:          hostManager,
 	})
 }
 
@@ -76,6 +92,7 @@ func NewWithDependencies(cfg Config, logger *slog.Logger, dependencies Dependenc
 		writeJSON(writer, http.StatusOK, outline)
 	})
 	registerConfigurationRoutes(router, dependencies.Configuration)
+	registerServiceRoutes(router, dependencies.Dae, dependencies.Host)
 	router.Handle("/", webui.Handler())
 
 	return &App{handler: recoverer(requestLogger(logger)(router), logger)}, nil

@@ -30,6 +30,9 @@ func run() error {
 	daeBinary := flag.String("dae-binary", envOr("KDAE_PANEL_DAE_BINARY", cfg.DaeBinary), "dae 可执行文件路径")
 	daeConfig := flag.String("dae-config", envOr("KDAE_PANEL_DAE_CONFIG", cfg.DaeConfigPath), "dae 入口配置文件路径")
 	backupDir := flag.String("backup-dir", envOr("KDAE_PANEL_BACKUP_DIR", cfg.BackupDir), "配置备份目录")
+	serviceName := flag.String("service-name", envOr("KDAE_PANEL_SERVICE_NAME", cfg.ServiceName), "dae systemd 服务名")
+	systemctl := flag.String("systemctl", envOr("KDAE_PANEL_SYSTEMCTL", cfg.Systemctl), "systemctl 可执行文件路径")
+	journalctl := flag.String("journalctl", envOr("KDAE_PANEL_JOURNALCTL", cfg.Journalctl), "journalctl 可执行文件路径")
 	showVersion := flag.Bool("version", false, "显示版本")
 	flag.Parse()
 
@@ -41,6 +44,9 @@ func run() error {
 	cfg.DaeBinary = *daeBinary
 	cfg.DaeConfigPath = *daeConfig
 	cfg.BackupDir = *backupDir
+	cfg.ServiceName = *serviceName
+	cfg.Systemctl = *systemctl
+	cfg.Journalctl = *journalctl
 	cfg.Version = version
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))

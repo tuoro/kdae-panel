@@ -80,6 +80,30 @@ func TestOutlineRejectsEmptyStructure(t *testing.T) {
 	}
 }
 
+func TestControlCommands(t *testing.T) {
+	runner := &fakeRunner{results: map[string]command.Result{
+		"dae validate -c /etc/dae/config.dae": {},
+		"dae reload":                          {Stdout: "OK\n"},
+		"dae suspend --abort":                 {Stdout: "OK\n"},
+		"dae sysdump":                         {Stdout: "diagnostic output"},
+	}, errors: map[string]error{}}
+	client := NewClientWithRunner("dae", runner, time.Second)
+
+	if err := client.Validate(context.Background(), "/etc/dae/config.dae"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Suspend(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	dump, err := client.Sysdump(context.Background())
+	if err != nil || dump != "diagnostic output" {
+		t.Fatalf("诊断输出 = %q，错误 = %v", dump, err)
+	}
+}
+
 func joinArgs(args []string) string {
 	result := ""
 	for index, arg := range args {

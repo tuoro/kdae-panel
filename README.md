@@ -24,6 +24,9 @@
 - 原始 `.dae` 配置读取、独立校验、并发冲突检测和安全保存；
 - 保存前备份、原子替换以及 `dae reload` 失败后的磁盘回滚；
 - 配置历史列表与指定备份恢复；
+- systemd 服务状态、启动、停止和重启；
+- dae 无损重载、暂停与 sysdump 诊断；
+- journald 近期日志的结构化读取；
 - 内嵌 Web 资源；
 - Go 与 Vue 的基础构建流程。
 
@@ -60,6 +63,15 @@ kdae-panel \
 ```
 
 对应环境变量为 `KDAE_PANEL_DAE_CONFIG` 和 `KDAE_PANEL_BACKUP_DIR`。
+
+自定义 systemd 单元和工具路径：
+
+```bash
+kdae-panel \
+  --service-name dae \
+  --systemctl /usr/bin/systemctl \
+  --journalctl /usr/bin/journalctl
+```
 
 ## 许可证
 
