@@ -265,6 +265,9 @@ func writeAuthenticationError(writer http.ResponseWriter, err error) {
 		writeAPIError(writer, http.StatusUnauthorized, "invalid_credentials", "用户名或密码错误")
 	case errors.Is(err, auth.ErrInvalidSession):
 		writeAPIError(writer, http.StatusUnauthorized, "authentication_required", err.Error())
+	case errors.Is(err, auth.ErrAuthenticationBusy):
+		writer.Header().Set("Retry-After", "1")
+		writeAPIError(writer, http.StatusTooManyRequests, "authentication_busy", err.Error())
 	case errors.As(err, &inputErr):
 		writeAPIError(writer, http.StatusBadRequest, "invalid_authentication_input", inputErr.Error())
 	default:

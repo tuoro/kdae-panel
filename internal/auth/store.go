@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -18,6 +19,7 @@ import (
 
 var (
 	ErrAlreadyInitialized = errors.New("管理员账户已经初始化")
+	ErrAuthenticationBusy = errors.New("认证服务正忙，请稍后重试")
 	ErrInvalidCredentials = errors.New("用户名或密码错误")
 	ErrInvalidSession     = errors.New("登录会话无效或已过期")
 )
@@ -28,6 +30,7 @@ type Store struct {
 	dummyHash      string
 	sessionTTL     time.Duration
 	now            func() time.Time
+	credentialMu   sync.Mutex
 }
 
 type User struct {
@@ -126,8 +129,20 @@ func (s *Store) Initialized(ctx context.Context) (bool, error) {
 }
 
 func (s *Store) Setup(ctx context.Context, username, password string) (Session, error) {
+	if !s.credentialMu.TryLock() {
+		return Session{}, ErrAuthenticationBusy
+	}
+	defer s.credentialMu.Unlock()
+
 	if err := validateUsername(username); err != nil {
 		return Session{}, err
+	}
+	initialized, err := s.Initialized(ctx)
+	if err != nil {
+		return Session{}, err
+	}
+	if initialized {
+		return Session{}, ErrAlreadyInitialized
 	}
 	hash, err := HashPassword(password, s.passwordParams)
 	if err != nil {
@@ -176,6 +191,11 @@ func (s *Store) Setup(ctx context.Context, username, password string) (Session, 
 }
 
 func (s *Store) Login(ctx context.Context, username, password string) (Session, error) {
+	if !s.credentialMu.TryLock() {
+		return Session{}, ErrAuthenticationBusy
+	}
+	defer s.credentialMu.Unlock()
+
 	var user User
 	var passwordHash string
 	var createdAt int64
@@ -254,6 +274,11 @@ func (s *Store) Logout(ctx context.Context, token string) error {
 }
 
 func (s *Store) ChangePassword(ctx context.Context, userID int64, currentPassword, newPassword string) (Session, error) {
+	if !s.credentialMu.TryLock() {
+		return Session{}, ErrAuthenticationBusy
+	}
+	defer s.credentialMu.Unlock()
+
 	var user User
 	var passwordHash string
 	var createdAt int64

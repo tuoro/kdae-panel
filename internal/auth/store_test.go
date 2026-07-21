@@ -37,7 +37,7 @@ func TestSetupLoginAndLogout(t *testing.T) {
 	if session.Token == "" || session.CSRFToken == "" || session.User.Username != "admin" {
 		t.Fatalf("初始化会话异常: %+v", session)
 	}
-	if _, err := store.Setup(ctx, "second", "another secure password"); !errors.Is(err, ErrAlreadyInitialized) {
+	if _, err := store.Setup(ctx, "second", "short"); !errors.Is(err, ErrAlreadyInitialized) {
 		t.Fatalf("重复初始化错误 = %v", err)
 	}
 
@@ -54,6 +54,17 @@ func TestSetupLoginAndLogout(t *testing.T) {
 	}
 	if _, err := store.GetSession(ctx, login.Token); !errors.Is(err, ErrInvalidSession) {
 		t.Fatalf("注销后会话错误 = %v", err)
+	}
+}
+
+func TestCredentialOperationsRejectConcurrentHashing(t *testing.T) {
+	store := newTestStore(t)
+	store.credentialMu.Lock()
+	defer store.credentialMu.Unlock()
+
+	_, err := store.Login(context.Background(), "admin", "a secure test password")
+	if !errors.Is(err, ErrAuthenticationBusy) {
+		t.Fatalf("并发认证错误 = %v", err)
 	}
 }
 
