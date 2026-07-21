@@ -3,7 +3,10 @@ package dae
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,14 +14,27 @@ import (
 )
 
 type fakeRunner struct {
-	results map[string]command.Result
-	errors  map[string]error
-	calls   []string
+	results        map[string]command.Result
+	errors         map[string]error
+	calls          []string
+	writeSysdump   bool
+	sysdumpContent []byte
 }
 
 func (r *fakeRunner) Run(_ context.Context, name string, args ...string) (command.Result, error) {
 	key := name + " " + joinArgs(args)
 	r.calls = append(r.calls, key)
+	return r.results[key], r.errors[key]
+}
+
+func (r *fakeRunner) RunInDir(_ context.Context, dir, name string, args ...string) (command.Result, error) {
+	key := name + " " + joinArgs(args)
+	r.calls = append(r.calls, key)
+	if r.writeSysdump && len(args) == 1 && args[0] == "sysdump" {
+		if err := os.WriteFile(filepath.Join(dir, "dae-sysdump.1.tar.gz"), r.sysdumpContent, 0600); err != nil {
+			return command.Result{}, err
+		}
+	}
 	return r.results[key], r.errors[key]
 }
 
@@ -85,8 +101,8 @@ func TestControlCommands(t *testing.T) {
 		"dae validate -c /etc/dae/config.dae": {},
 		"dae reload":                          {Stdout: "OK\n"},
 		"dae suspend --abort":                 {Stdout: "OK\n"},
-		"dae sysdump":                         {Stdout: "diagnostic output"},
-	}, errors: map[string]error{}}
+		"dae sysdump":                         {Stdout: "System network information collected and saved to dae-sysdump.1.tar.gz\n"},
+	}, errors: map[string]error{}, writeSysdump: true, sysdumpContent: []byte("archive")}
 	client := NewClientWithRunner("dae", runner, time.Second)
 
 	if err := client.Validate(context.Background(), "/etc/dae/config.dae"); err != nil {
@@ -99,8 +115,20 @@ func TestControlCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	dump, err := client.Sysdump(context.Background())
-	if err != nil || dump != "diagnostic output" {
-		t.Fatalf("诊断输出 = %q，错误 = %v", dump, err)
+	if err != nil || dump.Filename != "dae-sysdump.1.tar.gz" || string(dump.Content) != "archive" {
+		t.Fatalf("诊断归档 = %+v，错误 = %v", dump, err)
+	}
+}
+
+func TestSysdumpRejectsMissingArchive(t *testing.T) {
+	runner := &fakeRunner{
+		results: map[string]command.Result{"dae sysdump": {Stdout: "Failed to create tar archive\n"}},
+		errors:  map[string]error{},
+	}
+
+	_, err := NewClientWithRunner("dae", runner, time.Second).Sysdump(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "未生成归档") {
+		t.Fatalf("缺失归档错误 = %v", err)
 	}
 }
 

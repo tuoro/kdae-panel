@@ -16,7 +16,7 @@ import {
   type FormRules,
 } from 'naive-ui'
 import { DownloadOutline, KeyOutline } from '@vicons/ionicons5'
-import { getJSON } from '../api/client'
+import { getDownload } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { formatDateTime } from '../utils/format'
 
@@ -58,15 +58,14 @@ async function changePassword() {
 async function downloadSysdump() {
   dumpLoading.value = true
   try {
-    const result = await getJSON<{ content: string }>('/api/v1/diagnostics/sysdump')
-    const blob = new Blob([result.content], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
+    const result = await getDownload('/api/v1/diagnostics/sysdump')
+    const url = URL.createObjectURL(result.blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `dae-sysdump-${new Date().toISOString().replaceAll(':', '-')}.txt`
+    link.download = result.filename
     link.click()
     URL.revokeObjectURL(url)
-    message.success('诊断文件已生成')
+    message.success('诊断归档已生成')
   } catch (error) {
     message.error(error instanceof Error ? error.message : '生成诊断文件失败')
   } finally {
@@ -115,7 +114,7 @@ async function downloadSysdump() {
           </dl>
         </NCard>
         <NCard title="系统诊断" class="panel-card settings-dump">
-          <p class="panel-description">调用当前 dae 的 sysdump 命令生成诊断文本。文件可能包含接口、路由和系统环境信息，请谨慎分享。</p>
+          <p class="panel-description">调用当前 dae 的 sysdump 命令生成 gzip 诊断归档。文件可能包含接口、路由和系统环境信息，请谨慎分享。</p>
           <NButton secondary :loading="dumpLoading" @click="downloadSysdump">
             <template #icon><NIcon><DownloadOutline /></NIcon></template>导出 sysdump
           </NButton>
@@ -124,4 +123,3 @@ async function downloadSysdump() {
     </NGrid>
   </div>
 </template>
-

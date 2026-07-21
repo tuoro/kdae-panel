@@ -91,7 +91,7 @@ KDAE_PANEL_SECURE_COOKIE=true
 - 通过 systemd 启停服务；
 - 读取系统日志和 sysdump。
 
-单元通过 `ProtectSystem`、`ProtectHome`、`NoNewPrivileges`、能力白名单、地址族限制和只读系统路径降低暴露面。不要移除登录认证后对外开放，也不要让其他用户写入环境文件、数据库或面板二进制。
+单元通过 `ProtectSystem`、`ProtectHome`、`NoNewPrivileges`、能力白名单、地址族限制和只读系统路径降低暴露面。`ProtectProc=invisible` 会隐藏其他进程，但保留 `/proc/sys/net`，供 dae sysdump 采集 sysctl。不要移除登录认证后对外开放，也不要让其他用户写入环境文件、数据库或面板二进制。
 
 ## 升级面板
 
@@ -148,4 +148,3 @@ systemctl cat kdae-panel.service
 ```
 
 某些发行版或自定义 dae 可能需要调整 systemd 单元的能力白名单；修改前应明确缺失的具体系统调用或能力，避免直接移除所有沙箱设置。
-

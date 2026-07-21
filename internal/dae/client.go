@@ -5,13 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tuoro/kdae-panel/internal/command"
 )
 
-const defaultTimeout = 15 * time.Second
+const (
+	defaultTimeout  = 15 * time.Second
+	maxSysdumpBytes = 32 << 20
+)
 
 const (
 	validateTimeout = 45 * time.Second
@@ -19,9 +26,10 @@ const (
 )
 
 type Client struct {
-	binary  string
-	runner  command.Runner
-	timeout time.Duration
+	binary    string
+	runner    command.Runner
+	timeout   time.Duration
+	sysdumpMu sync.Mutex
 }
 
 type Report struct {
@@ -50,6 +58,11 @@ type OutlineElement struct {
 	Type         string           `json:"type,omitempty"`
 	Description  string           `json:"desc,omitempty"`
 	Structure    []OutlineElement `json:"structure,omitempty"`
+}
+
+type Sysdump struct {
+	Filename string
+	Content  []byte
 }
 
 func NewClient(binary string) *Client {
@@ -144,12 +157,26 @@ func (c *Client) Suspend(ctx context.Context, abort bool) error {
 	return nil
 }
 
-func (c *Client) Sysdump(ctx context.Context) (string, error) {
-	result, err := c.runFor(ctx, max(c.timeout, validateTimeout), "sysdump")
+func (c *Client) Sysdump(ctx context.Context) (Sysdump, error) {
+	c.sysdumpMu.Lock()
+	defer c.sysdumpMu.Unlock()
+
+	dir, err := os.MkdirTemp("", "kdae-panel-sysdump-")
 	if err != nil {
-		return "", fmt.Errorf("dae 系统诊断失败: %s", describeCommandError(err, result))
+		return Sysdump{}, fmt.Errorf("创建 sysdump 工作目录: %w", err)
 	}
-	return result.Stdout, nil
+	defer os.RemoveAll(dir)
+
+	result, err := c.runInDir(ctx, dir, max(c.timeout, validateTimeout), "sysdump")
+	if err != nil {
+		return Sysdump{}, fmt.Errorf("dae 系统诊断失败: %s", describeCommandError(err, result))
+	}
+
+	archive, err := findSysdumpArchive(dir)
+	if err != nil {
+		return Sysdump{}, fmt.Errorf("dae 系统诊断未生成归档: %w", err)
+	}
+	return archive, nil
 }
 
 func (c *Client) run(ctx context.Context, args ...string) (command.Result, error) {
@@ -160,6 +187,61 @@ func (c *Client) runFor(ctx context.Context, timeout time.Duration, args ...stri
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	return c.runner.Run(commandCtx, c.binary, args...)
+}
+
+func (c *Client) runInDir(ctx context.Context, dir string, timeout time.Duration, args ...string) (command.Result, error) {
+	runner, ok := c.runner.(command.DirectoryRunner)
+	if !ok {
+		return command.Result{}, errors.New("命令执行器不支持受控工作目录")
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return runner.RunInDir(commandCtx, dir, c.binary, args...)
+}
+
+func findSysdumpArchive(dir string) (Sysdump, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return Sysdump{}, err
+	}
+	var archiveName string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "dae-sysdump.") || !strings.HasSuffix(entry.Name(), ".tar.gz") {
+			continue
+		}
+		if archiveName != "" {
+			return Sysdump{}, errors.New("生成了多个 sysdump 归档")
+		}
+		archiveName = entry.Name()
+	}
+	if archiveName == "" {
+		return Sysdump{}, errors.New("未找到 dae-sysdump.*.tar.gz")
+	}
+
+	path := filepath.Join(dir, archiveName)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return Sysdump{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return Sysdump{}, errors.New("归档不是普通文件")
+	}
+	if info.Size() > maxSysdumpBytes {
+		return Sysdump{}, fmt.Errorf("归档超过 %d 字节限制", maxSysdumpBytes)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return Sysdump{}, err
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, maxSysdumpBytes+1))
+	if err != nil {
+		return Sysdump{}, err
+	}
+	if len(content) > maxSysdumpBytes {
+		return Sysdump{}, fmt.Errorf("归档超过 %d 字节限制", maxSysdumpBytes)
+	}
+	return Sysdump{Filename: archiveName, Content: content}, nil
 }
 
 func firstNonEmptyLine(value string) string {

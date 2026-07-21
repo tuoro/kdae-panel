@@ -69,7 +69,7 @@ X-CSRF-Token: <csrfToken>
 | `POST` | `/service/actions/reload` | 执行 `dae reload` |
 | `POST` | `/service/actions/suspend` | 执行 `dae suspend` |
 | `GET` | `/logs?limit=200` | 最近 1–500 条 journald 日志 |
-| `GET` | `/diagnostics/sysdump` | 执行 dae sysdump |
+| `GET` | `/diagnostics/sysdump` | 执行 dae sysdump，并以 `application/gzip` 下载生成的归档 |
 
 所有动作名和参数都由服务端白名单决定。URL、请求体和查询参数都不能注入额外命令参数。
 
@@ -85,4 +85,3 @@ X-CSRF-Token: <csrfToken>
 ```
 
 认证失败返回 `401`，CSRF 或来源检查失败返回 `403`，登录限速返回 `429` 并带 `Retry-After`。
-

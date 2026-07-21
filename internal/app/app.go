@@ -27,7 +27,7 @@ type DaeService interface {
 	Outline(ctx context.Context) (dae.Outline, error)
 	Reload(ctx context.Context) error
 	Suspend(ctx context.Context, abort bool) error
-	Sysdump(ctx context.Context) (string, error)
+	Sysdump(ctx context.Context) (dae.Sysdump, error)
 }
 
 type ConfigurationService interface {

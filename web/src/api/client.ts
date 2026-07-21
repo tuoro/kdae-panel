@@ -77,3 +77,22 @@ export function putJSON<T>(path: string, payload: unknown): Promise<T> {
   })
 }
 
+export async function getDownload(path: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(path, { credentials: 'same-origin' })
+  if (!response.ok) {
+    const contentType = response.headers.get('Content-Type') || ''
+    const body = contentType.includes('application/json')
+      ? await response.json()
+      : { error: { message: await response.text() } }
+    if (response.status === 401 && !path.startsWith('/api/v1/auth/')) {
+      window.dispatchEvent(new CustomEvent('kdae-panel:auth-expired'))
+    }
+    throw new APIError(response.status, body as APIErrorBody)
+  }
+  const disposition = response.headers.get('Content-Disposition') || ''
+  const matched = /filename="?([^";]+)"?/i.exec(disposition)
+  return {
+    blob: await response.blob(),
+    filename: matched?.[1] || 'dae-sysdump.tar.gz',
+  }
+}

@@ -64,8 +64,8 @@ func (s stubDaeService) Suspend(_ context.Context, _ bool) error {
 	return s.err
 }
 
-func (s stubDaeService) Sysdump(_ context.Context) (string, error) {
-	return "test dump", s.err
+func (s stubDaeService) Sysdump(_ context.Context) (dae.Sysdump, error) {
+	return dae.Sysdump{Filename: "dae-sysdump.test.tar.gz", Content: []byte("test dump")}, s.err
 }
 
 type stubHostService struct {
@@ -239,6 +239,31 @@ func TestServiceRestartAction(t *testing.T) {
 	}
 	if len(hostService.actions) != 1 || hostService.actions[0] != host.ActionRestart {
 		t.Fatalf("服务动作异常: %v", hostService.actions)
+	}
+}
+
+func TestSysdumpDownload(t *testing.T) {
+	application, err := NewWithDae(
+		Config{Version: "test-panel"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		stubDaeService{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/diagnostics/sysdump", nil)
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "test dump" {
+		t.Fatalf("sysdump 响应异常: status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Header().Get("Content-Type") != "application/gzip" {
+		t.Fatalf("Content-Type = %q", recorder.Header().Get("Content-Type"))
+	}
+	if !strings.Contains(recorder.Header().Get("Content-Disposition"), "dae-sysdump.test.tar.gz") {
+		t.Fatalf("Content-Disposition = %q", recorder.Header().Get("Content-Disposition"))
 	}
 }
 

@@ -29,7 +29,8 @@ ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
 ProtectProc=invisible
-ProcSubset=pid
+# sysdump 需要读取 /proc/sys/net；ProtectProc 仍会隐藏其他进程。
+ProcSubset=all
 RestrictSUIDSGID=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
@@ -42,4 +43,3 @@ ReadWritePaths=/etc/dae /var/lib/kdae-panel /run
 
 [Install]
 WantedBy=multi-user.target
-

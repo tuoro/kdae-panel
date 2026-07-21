@@ -81,12 +81,16 @@ func registerServiceRoutes(router *http.ServeMux, daeService DaeService, hostSer
 	})
 
 	router.HandleFunc("GET /api/v1/diagnostics/sysdump", func(writer http.ResponseWriter, request *http.Request) {
-		content, err := daeService.Sysdump(request.Context())
+		archive, err := daeService.Sysdump(request.Context())
 		if err != nil {
 			writeAPIError(writer, http.StatusBadGateway, "sysdump_failed", err.Error())
 			return
 		}
-		writeJSON(writer, http.StatusOK, map[string]string{"content": content})
+		writer.Header().Set("Content-Type", "application/gzip")
+		writer.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(archive.Filename))
+		writer.Header().Set("Content-Length", strconv.Itoa(len(archive.Content)))
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write(archive.Content)
 	})
 }
 

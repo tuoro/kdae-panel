@@ -21,11 +21,25 @@ type Runner interface {
 	Run(ctx context.Context, name string, args ...string) (Result, error)
 }
 
+// DirectoryRunner supports commands whose output contract depends on the current directory.
+type DirectoryRunner interface {
+	Runner
+	RunInDir(ctx context.Context, dir, name string, args ...string) (Result, error)
+}
+
 type ExecRunner struct {
 	OutputLimit int64
 }
 
 func (r ExecRunner) Run(ctx context.Context, name string, args ...string) (Result, error) {
+	return r.run(ctx, "", name, args...)
+}
+
+func (r ExecRunner) RunInDir(ctx context.Context, dir, name string, args ...string) (Result, error) {
+	return r.run(ctx, dir, name, args...)
+}
+
+func (r ExecRunner) run(ctx context.Context, dir, name string, args ...string) (Result, error) {
 	limit := r.OutputLimit
 	if limit <= 0 {
 		limit = defaultOutputLimit
@@ -34,6 +48,7 @@ func (r ExecRunner) Run(ctx context.Context, name string, args ...string) (Resul
 	stdout := newLimitedBuffer(limit)
 	stderr := newLimitedBuffer(limit)
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
