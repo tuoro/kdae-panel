@@ -41,6 +41,8 @@ sudo systemctl restart kdae-panel
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
 | `KDAE_PANEL_LISTEN` | `127.0.0.1:2023` | HTTP 监听地址 |
+| `KDAE_PANEL_BOOTSTRAP_TOKEN` | 空 | 首次初始化 token；留空时启动自动生成并写入服务日志 |
+| `KDAE_PANEL_TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | 可以转发客户端地址和协议的代理 CIDR，逗号分隔 |
 | `KDAE_PANEL_DAE_BINARY` | `/usr/bin/dae` | dae 二进制路径 |
 | `KDAE_PANEL_DAE_CONFIG` | `/etc/dae/config.dae` | dae 入口配置 |
 | `KDAE_PANEL_SERVICE_NAME` | `dae` | systemd 单元名 |
@@ -69,18 +71,19 @@ server {
         proxy_pass http://127.0.0.1:2023;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto https;
     }
 }
 ```
 
-启用 HTTPS 后设置：
+面板只接受可信代理 CIDR 转发的地址和协议。可信代理报告 HTTPS 时，Cookie 会自动增加 `Secure` 并发送 HSTS；仍建议显式设置：
 
 ```bash
 KDAE_PANEL_SECURE_COOKIE=true
 ```
 
-面板的同源检查比较浏览器 `Origin` 与代理保留的 `Host`，因此反向代理必须传递原始 Host。
+面板的同源检查同时比较浏览器 `Origin` 的协议和主机，因此反向代理必须传递原始 Host 和正确的 `X-Forwarded-Proto`。不要信任公网来源的转发头。
 
 ## 权限模型
 

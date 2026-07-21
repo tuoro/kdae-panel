@@ -27,7 +27,17 @@ func main() {
 
 func run() error {
 	cfg := app.DefaultConfig()
+	sessionTTLDefault, err := envDuration("KDAE_PANEL_SESSION_TTL", cfg.SessionTTL)
+	if err != nil {
+		return err
+	}
+	secureCookieDefault, err := envBool("KDAE_PANEL_SECURE_COOKIE", cfg.SecureCookie)
+	if err != nil {
+		return err
+	}
 	listen := flag.String("listen", envOr("KDAE_PANEL_LISTEN", cfg.ListenAddress), "HTTP 监听地址")
+	bootstrapToken := flag.String("bootstrap-token", envOr("KDAE_PANEL_BOOTSTRAP_TOKEN", cfg.BootstrapToken), "首次初始化 bootstrap token")
+	trustedProxies := flag.String("trusted-proxies", envOr("KDAE_PANEL_TRUSTED_PROXIES", cfg.TrustedProxies), "可信反向代理 CIDR，逗号分隔")
 	daeBinary := flag.String("dae-binary", envOr("KDAE_PANEL_DAE_BINARY", cfg.DaeBinary), "dae 可执行文件路径")
 	daeConfig := flag.String("dae-config", envOr("KDAE_PANEL_DAE_CONFIG", cfg.DaeConfigPath), "dae 入口配置文件路径")
 	backupDir := flag.String("backup-dir", envOr("KDAE_PANEL_BACKUP_DIR", cfg.BackupDir), "配置备份目录")
@@ -35,8 +45,8 @@ func run() error {
 	systemctl := flag.String("systemctl", envOr("KDAE_PANEL_SYSTEMCTL", cfg.Systemctl), "systemctl 可执行文件路径")
 	journalctl := flag.String("journalctl", envOr("KDAE_PANEL_JOURNALCTL", cfg.Journalctl), "journalctl 可执行文件路径")
 	databasePath := flag.String("database", envOr("KDAE_PANEL_DATABASE", cfg.DatabasePath), "面板 SQLite 数据库路径")
-	sessionTTL := flag.Duration("session-ttl", envDuration("KDAE_PANEL_SESSION_TTL", cfg.SessionTTL), "登录会话有效期")
-	secureCookie := flag.Bool("secure-cookie", envBool("KDAE_PANEL_SECURE_COOKIE", cfg.SecureCookie), "仅通过 HTTPS 发送登录 Cookie")
+	sessionTTL := flag.Duration("session-ttl", sessionTTLDefault, "登录会话有效期")
+	secureCookie := flag.Bool("secure-cookie", secureCookieDefault, "仅通过 HTTPS 发送登录 Cookie")
 	showVersion := flag.Bool("version", false, "显示版本")
 	flag.Parse()
 
@@ -45,6 +55,8 @@ func run() error {
 		return nil
 	}
 	cfg.ListenAddress = *listen
+	cfg.BootstrapToken = *bootstrapToken
+	cfg.TrustedProxies = *trustedProxies
 	cfg.DaeBinary = *daeBinary
 	cfg.DaeConfigPath = *daeConfig
 	cfg.BackupDir = *backupDir
@@ -113,26 +125,29 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func envBool(key string, fallback bool) bool {
+func envBool(key string, fallback bool) (bool, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
-		return fallback
+		return false, fmt.Errorf("环境变量 %s=%q 不是有效布尔值: %w", key, value, err)
 	}
-	return parsed
+	return parsed, nil
 }
 
-func envDuration(key string, fallback time.Duration) time.Duration {
+func envDuration(key string, fallback time.Duration) (time.Duration, error) {
 	value := os.Getenv(key)
 	if value == "" {
-		return fallback
+		return fallback, nil
 	}
 	parsed, err := time.ParseDuration(value)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("环境变量 %s=%q 不是有效时长: %w", key, value, err)
 	}
-	return parsed
+	if parsed <= 0 {
+		return 0, fmt.Errorf("环境变量 %s 必须大于 0", key)
+	}
+	return parsed, nil
 }

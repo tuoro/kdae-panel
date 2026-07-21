@@ -38,6 +38,8 @@ ssh -L 2023:127.0.0.1:2023 root@router.example
 
 然后打开 `http://127.0.0.1:2023` 创建管理员账户。
 
+首次启动会在服务日志中生成 bootstrap token。通过 systemd 安装时可执行 `sudo journalctl -u kdae-panel -n 20 --no-pager` 查看；创建管理员后初始化接口会永久关闭。
+
 ## 开发
 
 ```bash

@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,6 +77,19 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("初始化认证服务: %w", err)
 	}
+	initialized, err := authStore.Initialized(context.Background())
+	if err != nil {
+		_ = authStore.Close()
+		return nil, fmt.Errorf("检查管理员初始化状态: %w", err)
+	}
+	if !initialized && cfg.BootstrapToken == "" {
+		cfg.BootstrapToken, err = newBootstrapToken()
+		if err != nil {
+			_ = authStore.Close()
+			return nil, err
+		}
+		logger.Warn("首次初始化需要 bootstrap token", "bootstrap_token", cfg.BootstrapToken)
+	}
 	application, err := NewWithDependencies(cfg, logger, Dependencies{
 		Dae:            daeClient,
 		Configuration:  configuration,
@@ -97,6 +112,10 @@ func NewWithDependencies(cfg Config, logger *slog.Logger, dependencies Dependenc
 	if dependencies.Dae == nil {
 		return nil, errors.New("dae 服务不能为空")
 	}
+	proxyTrust, err := parseProxyTrust(cfg.TrustedProxies)
+	if err != nil {
+		return nil, err
+	}
 	router := http.NewServeMux()
 	router.HandleFunc("GET /api/v1/health", func(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]any{
@@ -117,17 +136,25 @@ func NewWithDependencies(cfg Config, logger *slog.Logger, dependencies Dependenc
 	})
 	registerConfigurationRoutes(router, dependencies.Configuration)
 	registerServiceRoutes(router, dependencies.Dae, dependencies.Host)
-	registerAuthenticationRoutes(router, dependencies.Authentication, cfg.SecureCookie)
+	registerAuthenticationRoutes(router, dependencies.Authentication, cfg.SecureCookie, cfg.BootstrapToken, proxyTrust)
 	router.Handle("/", webui.Handler())
 
 	var handler http.Handler = router
 	if dependencies.Authentication != nil {
-		handler = authenticationMiddleware(handler, dependencies.Authentication, cfg.SecureCookie)
+		handler = authenticationMiddleware(handler, dependencies.Authentication, cfg.SecureCookie, proxyTrust)
 	}
-	handler = securityHeaders(handler)
+	handler = securityHeaders(handler, proxyTrust)
 	handler = recoverer(handler, logger)
 	handler = requestLogger(logger)(handler)
 	return &App{handler: handler}, nil
+}
+
+func newBootstrapToken() (string, error) {
+	content := make([]byte, 24)
+	if _, err := rand.Read(content); err != nil {
+		return "", fmt.Errorf("生成 bootstrap token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(content), nil
 }
 
 func writeAPIError(writer http.ResponseWriter, status int, code, message string) {

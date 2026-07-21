@@ -5,6 +5,7 @@ import type { AuthStatus } from '../types/api'
 interface Credentials {
   username: string
   password: string
+  bootstrapToken?: string
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -13,6 +14,7 @@ export const useAuthStore = defineStore('auth', {
     loading: false,
     initialized: false,
     authenticated: false,
+    bootstrapRequired: false,
     user: undefined as AuthStatus['user'],
     expiresAt: undefined as string | undefined,
   }),
@@ -21,6 +23,7 @@ export const useAuthStore = defineStore('auth', {
       this.loaded = true
       this.initialized = status.initialized
       this.authenticated = status.authenticated
+      this.bootstrapRequired = Boolean(status.bootstrapRequired)
       this.user = status.user
       this.expiresAt = status.expiresAt
       setCSRFToken(status.csrfToken || '')

@@ -7,7 +7,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/auth/status` | 初始化和登录状态 |
-| `POST` | `/auth/setup` | 创建首个管理员，仅可成功一次 |
+| `POST` | `/auth/setup` | 使用 bootstrap token 创建首个管理员，仅可成功一次 |
 | `POST` | `/auth/login` | 登录并设置 HttpOnly Cookie |
 | `POST` | `/auth/logout` | 注销当前会话 |
 | `POST` | `/auth/password` | 修改密码并注销旧会话 |
@@ -19,6 +19,8 @@ X-CSRF-Token: <csrfToken>
 ```
 
 浏览器会话 Cookie 名为 `kdae_panel_session`，属性为 `HttpOnly`、`SameSite=Strict`，可配置 `Secure`。
+
+未初始化时，`/auth/status` 会返回 `bootstrapRequired: true`。`/auth/setup` 请求必须在 JSON 中提交服务首次启动日志里的 `bootstrapToken`；显式配置 `KDAE_PANEL_BOOTSTRAP_TOKEN` 时使用该固定值。
 
 ## dae 能力
 

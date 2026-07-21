@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,11 +16,14 @@ import (
 
 const sessionCookieName = "kdae_panel_session"
 
+const maxLoginAttempts = 4096
+
 type authContextKey struct{}
 
 type credentialsRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username       string `json:"username"`
+	Password       string `json:"password"`
+	BootstrapToken string `json:"bootstrapToken,omitempty"`
 }
 
 type changePasswordRequest struct {
@@ -30,18 +32,20 @@ type changePasswordRequest struct {
 }
 
 type authStatusResponse struct {
-	Initialized   bool       `json:"initialized"`
-	Authenticated bool       `json:"authenticated"`
-	User          *auth.User `json:"user,omitempty"`
-	CSRFToken     string     `json:"csrfToken,omitempty"`
-	ExpiresAt     time.Time  `json:"expiresAt,omitempty"`
+	Initialized       bool       `json:"initialized"`
+	Authenticated     bool       `json:"authenticated"`
+	User              *auth.User `json:"user,omitempty"`
+	CSRFToken         string     `json:"csrfToken,omitempty"`
+	ExpiresAt         time.Time  `json:"expiresAt,omitempty"`
+	BootstrapRequired bool       `json:"bootstrapRequired,omitempty"`
 }
 
-func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationService, secureCookie bool) {
+func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationService, secureCookie bool, bootstrapToken string, proxyTrust proxyTrust) {
 	if service == nil {
 		return
 	}
 	limiter := newLoginLimiter()
+	setupLimiter := newLoginLimiter()
 
 	router.HandleFunc("GET /api/v1/auth/status", func(writer http.ResponseWriter, request *http.Request) {
 		initialized, err := service.Initialized(request.Context())
@@ -49,7 +53,7 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 			writeAPIError(writer, http.StatusInternalServerError, "authentication_error", err.Error())
 			return
 		}
-		response := authStatusResponse{Initialized: initialized}
+		response := authStatusResponse{Initialized: initialized, BootstrapRequired: !initialized && bootstrapToken != ""}
 		if session, ok := optionalSession(request, service); ok {
 			response.Authenticated = true
 			response.User = &session.User
@@ -61,26 +65,50 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 	})
 
 	router.HandleFunc("POST /api/v1/auth/setup", func(writer http.ResponseWriter, request *http.Request) {
-		if !sameOrigin(request) {
+		if !sameOrigin(request, proxyTrust) {
 			writeAPIError(writer, http.StatusForbidden, "origin_rejected", "请求来源与面板地址不一致")
+			return
+		}
+		initialized, err := service.Initialized(request.Context())
+		if err != nil {
+			writeAPIError(writer, http.StatusInternalServerError, "authentication_error", "认证服务内部错误")
+			return
+		}
+		if initialized {
+			writeAuthenticationError(writer, auth.ErrAlreadyInitialized)
+			return
+		}
+		setupKey := "setup\x00" + proxyTrust.clientAddress(request)
+		if retryAfter, allowed := setupLimiter.Allow(setupKey); !allowed {
+			writer.Header().Set("Retry-After", strconv.Itoa(max(int(retryAfter.Seconds()), 1)))
+			writeAPIError(writer, http.StatusTooManyRequests, "setup_rate_limited", "初始化尝试过多，请稍后重试")
 			return
 		}
 		var payload credentialsRequest
 		if !decodeSmallJSONBody(writer, request, &payload) {
 			return
 		}
+		if bootstrapToken != "" && subtle.ConstantTimeCompare([]byte(payload.BootstrapToken), []byte(bootstrapToken)) != 1 {
+			setupLimiter.Failure(setupKey)
+			writeAPIError(writer, http.StatusForbidden, "bootstrap_token_rejected", "bootstrap token 无效")
+			return
+		}
 		session, err := service.Setup(request.Context(), payload.Username, payload.Password)
 		if err != nil {
+			if !errors.Is(err, auth.ErrAuthenticationBusy) {
+				setupLimiter.Failure(setupKey)
+			}
 			writeAuthenticationError(writer, err)
 			return
 		}
-		setSessionCookie(writer, session, secureCookie)
+		setupLimiter.Success(setupKey)
+		setSessionCookie(writer, session, secureCookie || proxyTrust.requestScheme(request) == "https")
 		writer.Header().Set("Cache-Control", "no-store")
 		writeJSON(writer, http.StatusCreated, sessionResponse(session))
 	})
 
 	router.HandleFunc("POST /api/v1/auth/login", func(writer http.ResponseWriter, request *http.Request) {
-		if !sameOrigin(request) {
+		if !sameOrigin(request, proxyTrust) {
 			writeAPIError(writer, http.StatusForbidden, "origin_rejected", "请求来源与面板地址不一致")
 			return
 		}
@@ -88,8 +116,8 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 		if !decodeSmallJSONBody(writer, request, &payload) {
 			return
 		}
-		key := loginKey(request, payload.Username)
-		if retryAfter, allowed := limiter.Allow(key); !allowed {
+		keys := loginKeys(request, proxyTrust)
+		if retryAfter, allowed := limiter.Allow(keys...); !allowed {
 			writer.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
 			writeAPIError(writer, http.StatusTooManyRequests, "login_rate_limited", "登录尝试过多，请稍后重试")
 			return
@@ -97,13 +125,13 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 		session, err := service.Login(request.Context(), payload.Username, payload.Password)
 		if err != nil {
 			if errors.Is(err, auth.ErrInvalidCredentials) {
-				limiter.Failure(key)
+				limiter.Failure(keys...)
 			}
 			writeAuthenticationError(writer, err)
 			return
 		}
-		limiter.Success(key)
-		setSessionCookie(writer, session, secureCookie)
+		limiter.Success(keys...)
+		setSessionCookie(writer, session, secureCookie || proxyTrust.requestScheme(request) == "https")
 		writer.Header().Set("Cache-Control", "no-store")
 		writeJSON(writer, http.StatusOK, sessionResponse(session))
 	})
@@ -118,7 +146,7 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 			writeAPIError(writer, http.StatusInternalServerError, "authentication_error", err.Error())
 			return
 		}
-		clearSessionCookie(writer, secureCookie)
+		clearSessionCookie(writer, secureCookie || proxyTrust.requestScheme(request) == "https")
 		writer.WriteHeader(http.StatusNoContent)
 	})
 
@@ -142,12 +170,12 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 			writeAuthenticationError(writer, err)
 			return
 		}
-		setSessionCookie(writer, newSession, secureCookie)
+		setSessionCookie(writer, newSession, secureCookie || proxyTrust.requestScheme(request) == "https")
 		writeJSON(writer, http.StatusOK, sessionResponse(newSession))
 	})
 }
 
-func authenticationMiddleware(next http.Handler, service AuthenticationService, secureCookie bool) http.Handler {
+func authenticationMiddleware(next http.Handler, service AuthenticationService, secureCookie bool, proxyTrust proxyTrust) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !strings.HasPrefix(request.URL.Path, "/api/v1/") || publicAPIPath(request.URL.Path) {
 			next.ServeHTTP(writer, request)
@@ -160,12 +188,12 @@ func authenticationMiddleware(next http.Handler, service AuthenticationService, 
 		}
 		session, err := service.GetSession(request.Context(), cookie.Value)
 		if err != nil {
-			clearSessionCookie(writer, secureCookie)
+			clearSessionCookie(writer, secureCookie || proxyTrust.requestScheme(request) == "https")
 			writeAPIError(writer, http.StatusUnauthorized, "authentication_required", "登录会话无效或已过期")
 			return
 		}
 		if request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions {
-			if !sameOrigin(request) {
+			if !sameOrigin(request, proxyTrust) {
 				writeAPIError(writer, http.StatusForbidden, "origin_rejected", "请求来源与面板地址不一致")
 				return
 			}
@@ -239,7 +267,7 @@ func sessionResponse(session auth.Session) authStatusResponse {
 	}
 }
 
-func sameOrigin(request *http.Request) bool {
+func sameOrigin(request *http.Request, proxyTrust proxyTrust) bool {
 	origin := request.Header.Get("Origin")
 	if origin == "" {
 		return true
@@ -248,7 +276,7 @@ func sameOrigin(request *http.Request) bool {
 	if err != nil || parsed.Host == "" {
 		return false
 	}
-	return strings.EqualFold(parsed.Host, request.Host)
+	return strings.EqualFold(parsed.Host, request.Host) && strings.EqualFold(parsed.Scheme, proxyTrust.requestScheme(request))
 }
 
 func decodeSmallJSONBody(writer http.ResponseWriter, request *http.Request, destination any) bool {
@@ -275,61 +303,93 @@ func writeAuthenticationError(writer http.ResponseWriter, err error) {
 	}
 }
 
-func loginKey(request *http.Request, _ string) string {
-	host, _, err := net.SplitHostPort(request.RemoteAddr)
-	if err != nil {
-		host = request.RemoteAddr
-	}
-	return host
+func loginKeys(request *http.Request, proxyTrust proxyTrust) []string {
+	return []string{"address\x00" + proxyTrust.clientAddress(request)}
 }
 
 type loginAttempt struct {
 	count        int
 	windowStart  time.Time
 	blockedUntil time.Time
+	updatedAt    time.Time
 }
 
 type loginLimiter struct {
-	mu       sync.Mutex
-	attempts map[string]loginAttempt
-	now      func() time.Time
+	mu          sync.Mutex
+	attempts    map[string]loginAttempt
+	now         func() time.Time
+	nextCleanup time.Time
 }
 
 func newLoginLimiter() *loginLimiter {
 	return &loginLimiter{attempts: make(map[string]loginAttempt), now: time.Now}
 }
 
-func (l *loginLimiter) Allow(key string) (time.Duration, bool) {
+func (l *loginLimiter) Allow(keys ...string) (time.Duration, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	attempt := l.attempts[key]
-	if now.Before(attempt.blockedUntil) {
-		return attempt.blockedUntil.Sub(now), false
+	l.cleanup(now)
+	var retryAfter time.Duration
+	for _, key := range keys {
+		attempt := l.attempts[key]
+		if now.Before(attempt.blockedUntil) {
+			retryAfter = max(retryAfter, attempt.blockedUntil.Sub(now))
+		}
 	}
-	if !attempt.windowStart.IsZero() && now.Sub(attempt.windowStart) > 5*time.Minute {
+	return retryAfter, retryAfter == 0
+}
+
+func (l *loginLimiter) Failure(keys ...string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := l.now()
+	l.cleanup(now)
+	for _, key := range keys {
+		if _, exists := l.attempts[key]; !exists && len(l.attempts) >= maxLoginAttempts {
+			l.evictOldest()
+		}
+		attempt := l.attempts[key]
+		if attempt.windowStart.IsZero() || now.Sub(attempt.windowStart) > 5*time.Minute {
+			attempt = loginAttempt{windowStart: now}
+		}
+		attempt.count++
+		attempt.updatedAt = now
+		if attempt.count >= 5 {
+			attempt.blockedUntil = now.Add(15 * time.Minute)
+		}
+		l.attempts[key] = attempt
+	}
+}
+
+func (l *loginLimiter) Success(keys ...string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, key := range keys {
 		delete(l.attempts, key)
 	}
-	return 0, true
 }
 
-func (l *loginLimiter) Failure(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := l.now()
-	attempt := l.attempts[key]
-	if attempt.windowStart.IsZero() || now.Sub(attempt.windowStart) > 5*time.Minute {
-		attempt = loginAttempt{windowStart: now}
+func (l *loginLimiter) cleanup(now time.Time) {
+	if !l.nextCleanup.IsZero() && now.Before(l.nextCleanup) {
+		return
 	}
-	attempt.count++
-	if attempt.count >= 5 {
-		attempt.blockedUntil = now.Add(15 * time.Minute)
+	for key, attempt := range l.attempts {
+		if !now.Before(attempt.blockedUntil) && now.Sub(attempt.windowStart) > 5*time.Minute {
+			delete(l.attempts, key)
+		}
 	}
-	l.attempts[key] = attempt
+	l.nextCleanup = now.Add(time.Minute)
 }
 
-func (l *loginLimiter) Success(key string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.attempts, key)
+func (l *loginLimiter) evictOldest() {
+	var oldestKey string
+	var oldestTime time.Time
+	for key, attempt := range l.attempts {
+		if oldestKey == "" || attempt.updatedAt.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = attempt.updatedAt
+		}
+	}
+	delete(l.attempts, oldestKey)
 }

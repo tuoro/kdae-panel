@@ -10,6 +10,7 @@ export interface AuthStatus {
   user?: User
   csrfToken?: string
   expiresAt?: string
+  bootstrapRequired?: boolean
 }
 
 export interface DaeReport {
@@ -91,4 +92,3 @@ export interface LogEntry {
   unit?: string
   pid?: string
 }
-

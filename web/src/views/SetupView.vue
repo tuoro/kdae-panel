@@ -10,7 +10,7 @@ const router = useRouter()
 const message = useMessage()
 const form = ref<FormInst | null>(null)
 const loading = ref(false)
-const model = reactive({ username: 'admin', password: '', confirmPassword: '' })
+const model = reactive({ username: 'admin', password: '', confirmPassword: '', bootstrapToken: '' })
 const rules: FormRules = {
   username: [
     { required: true, message: '请输入用户名', trigger: ['input', 'blur'] },
@@ -25,13 +25,18 @@ const rules: FormRules = {
     message: '两次输入的密码不一致',
     trigger: ['input', 'blur'],
   },
+  bootstrapToken: {
+    validator: (_rule, value: string) => !auth.bootstrapRequired || Boolean(value),
+    message: '请输入服务日志中的 bootstrap token',
+    trigger: ['input', 'blur'],
+  },
 }
 
 async function submit() {
   await form.value?.validate()
   loading.value = true
   try {
-    await auth.setup({ username: model.username, password: model.password })
+    await auth.setup({ username: model.username, password: model.password, bootstrapToken: model.bootstrapToken })
     message.success('管理员账户创建成功')
     await router.replace({ name: 'dashboard' })
   } catch (error) {
@@ -52,6 +57,9 @@ async function submit() {
       首次初始化建议在本机完成；公开到网络前请先配置 HTTPS 与安全 Cookie。
     </NAlert>
     <NForm ref="form" :model="model" :rules="rules" size="large" @submit.prevent="submit">
+      <NFormItem v-if="auth.bootstrapRequired" label="Bootstrap Token" path="bootstrapToken">
+        <NInput v-model:value="model.bootstrapToken" type="password" autocomplete="off" placeholder="查看 kdae-panel 服务日志" />
+      </NFormItem>
       <NFormItem label="管理员用户名" path="username">
         <NInput v-model:value="model.username" autocomplete="username" />
       </NFormItem>
@@ -65,4 +73,3 @@ async function submit() {
     </NForm>
   </AuthShell>
 </template>
-

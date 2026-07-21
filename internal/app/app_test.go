@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +79,7 @@ type stubAuthenticationService struct {
 	initialized bool
 	session     auth.Session
 	err         error
+	setupCalls  int
 }
 
 func (s *stubAuthenticationService) Initialized(_ context.Context) (bool, error) {
@@ -85,6 +87,7 @@ func (s *stubAuthenticationService) Initialized(_ context.Context) (bool, error)
 }
 
 func (s *stubAuthenticationService) Setup(_ context.Context, _, _ string) (auth.Session, error) {
+	s.setupCalls++
 	return s.session, s.err
 }
 
@@ -305,7 +308,7 @@ func TestAuthenticationProtectsAPIAndChecksCSRF(t *testing.T) {
 
 	validRequest := httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(`{"content":"test"}`))
 	validRequest.Host = "panel.example"
-	validRequest.Header.Set("Origin", "https://panel.example")
+	validRequest.Header.Set("Origin", "http://panel.example")
 	validRequest.Header.Set("X-CSRF-Token", session.CSRFToken)
 	validRequest.AddCookie(&http.Cookie{Name: sessionCookieName, Value: session.Token})
 	validResponse := httptest.NewRecorder()
@@ -315,19 +318,121 @@ func TestAuthenticationProtectsAPIAndChecksCSRF(t *testing.T) {
 	}
 }
 
+func TestSetupRequiresBootstrapTokenAndClosesAfterInitialization(t *testing.T) {
+	session := auth.Session{Token: "session", CSRFToken: "csrf", ExpiresAt: time.Now().Add(time.Hour), User: auth.User{ID: 1, Username: "admin"}}
+	authService := &stubAuthenticationService{session: session}
+	application, err := NewWithDependencies(
+		Config{Version: "test", BootstrapToken: "bootstrap-secret"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Dependencies{Dae: stubDaeService{}, Authentication: authService},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rejected := httptest.NewRecorder()
+	rejectedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", strings.NewReader(`{"username":"admin","password":"a secure test password","bootstrapToken":"wrong"}`))
+	application.Handler().ServeHTTP(rejected, rejectedRequest)
+	if rejected.Code != http.StatusForbidden || authService.setupCalls != 0 {
+		t.Fatalf("错误 token 响应: status=%d calls=%d", rejected.Code, authService.setupCalls)
+	}
+
+	accepted := httptest.NewRecorder()
+	acceptedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", strings.NewReader(`{"username":"admin","password":"a secure test password","bootstrapToken":"bootstrap-secret"}`))
+	application.Handler().ServeHTTP(accepted, acceptedRequest)
+	if accepted.Code != http.StatusCreated || authService.setupCalls != 1 {
+		t.Fatalf("正确 token 响应: status=%d body=%s calls=%d", accepted.Code, accepted.Body, authService.setupCalls)
+	}
+
+	authService.initialized = true
+	closed := httptest.NewRecorder()
+	closedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", strings.NewReader(`{"username":"admin","password":"short"}`))
+	application.Handler().ServeHTTP(closed, closedRequest)
+	if closed.Code != http.StatusConflict || authService.setupCalls != 1 {
+		t.Fatalf("已初始化响应: status=%d calls=%d", closed.Code, authService.setupCalls)
+	}
+}
+
 func TestLoginLimiterBlocksRepeatedFailures(t *testing.T) {
 	limiter := newLoginLimiter()
 	now := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
 	limiter.now = func() time.Time { return now }
 	for range 5 {
-		limiter.Failure("127.0.0.1")
+		limiter.Failure("address\x00127.0.0.1")
 	}
-	retryAfter, allowed := limiter.Allow("127.0.0.1")
+	retryAfter, allowed := limiter.Allow("address\x00127.0.0.1")
 	if allowed || retryAfter != 15*time.Minute {
 		t.Fatalf("限速结果异常: allowed=%v retryAfter=%v", allowed, retryAfter)
 	}
-	limiter.Success("127.0.0.1")
-	if _, allowed := limiter.Allow("127.0.0.1"); !allowed {
+	limiter.Success("address\x00127.0.0.1")
+	if _, allowed := limiter.Allow("address\x00127.0.0.1"); !allowed {
 		t.Fatal("成功登录后应该清除限速状态")
+	}
+}
+
+func TestLoginLimiterBoundsState(t *testing.T) {
+	limiter := newLoginLimiter()
+	limiter.now = func() time.Time { return time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC) }
+	for index := 0; index < maxLoginAttempts+100; index++ {
+		limiter.Failure("address\x00" + strconv.Itoa(index))
+	}
+	if len(limiter.attempts) != maxLoginAttempts {
+		t.Fatalf("限速状态数量 = %d", len(limiter.attempts))
+	}
+}
+
+func TestProxyTrustUsesForwardedClientAndScheme(t *testing.T) {
+	trust, err := parseProxyTrust("127.0.0.0/8,::1/128")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://panel.example/api/v1/auth/login", nil)
+	request.RemoteAddr = "127.0.0.1:12345"
+	request.Host = "panel.example"
+	request.Header.Set("X-Forwarded-For", "198.51.100.10, 127.0.0.2")
+	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Set("Origin", "https://panel.example")
+
+	keys := loginKeys(request, trust)
+	if len(keys) != 1 || keys[0] != "address\x00198.51.100.10" {
+		t.Fatalf("登录限速键 = %q", keys)
+	}
+	if !sameOrigin(request, trust) {
+		t.Fatal("可信代理的 HTTPS 同源请求应该通过")
+	}
+}
+
+func TestUntrustedForwardedHeadersIgnored(t *testing.T) {
+	trust, err := parseProxyTrust("127.0.0.0/8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "http://panel.example/api/v1/auth/login", nil)
+	request.RemoteAddr = "198.51.100.20:12345"
+	request.Host = "panel.example"
+	request.Header.Set("X-Forwarded-For", "203.0.113.9")
+	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Set("Origin", "https://panel.example")
+
+	if got := trust.clientAddress(request); got != "198.51.100.20" {
+		t.Fatalf("客户端地址 = %q", got)
+	}
+	if sameOrigin(request, trust) {
+		t.Fatal("不可信来源不能伪造 HTTPS 同源请求")
+	}
+}
+
+func TestSecurityHeadersHonorTrustedHTTPSProxy(t *testing.T) {
+	trust, _ := parseProxyTrust("127.0.0.0/8")
+	handler := securityHeaders(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}), trust)
+	request := httptest.NewRequest(http.MethodGet, "http://panel.example/", nil)
+	request.RemoteAddr = "127.0.0.1:12345"
+	request.Header.Set("X-Forwarded-Proto", "https")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Header().Get("Strict-Transport-Security") == "" {
+		t.Fatal("可信 HTTPS 代理后应发送 HSTS")
 	}
 }

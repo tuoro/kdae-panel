@@ -40,4 +40,4 @@ systemctl daemon-reload
 systemctl enable --now kdae-panel.service
 
 echo "kdae-panel 已启动：http://127.0.0.1:2023"
-echo "首次访问时请立即创建管理员账户。"
+echo "首次访问前请通过 journalctl -u kdae-panel -n 20 --no-pager 查看 bootstrap token。"
