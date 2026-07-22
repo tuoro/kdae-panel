@@ -79,3 +79,7 @@ kdae-panel
 - 每个出站节点的真实运行时健康状态。
 
 未来若 dae 提供稳定 API，这些能力可以作为可选适配器增加，不影响现有 CLI 路径。
+
+## 上游契约验证
+
+定时 CI 会构建 `olicesx/dae` 的 `kdae` 分支，并使用真实二进制执行 `--version`、`--help`、`export outline`、`validate -c` 和 `sysdump`。`reload`、`suspend` 只验证命令能力，不在 CI 主机发送进程控制信号。

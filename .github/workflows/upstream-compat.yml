@@ -1,0 +1,49 @@
+name: kdae 上游兼容
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kdae-upstream-compat
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出面板
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: 检出 kdae 分支
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: olicesx/dae
+          ref: kdae
+          path: upstream
+          submodules: recursive
+          fetch-depth: 1
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.25.12'
+          cache: true
+
+      - name: 安装上游构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang llvm
+
+      - name: 构建 kdae
+        run: make -C upstream dae NOSTRIP=y DEFAULT_GOEXPERIMENT= OUTPUT=dae-contract
+
+      - name: 验证面板与 kdae 公开契约
+        env:
+          KDAE_CONTRACT_BINARY: ${{ github.workspace }}/upstream/dae-contract
+          KDAE_CONTRACT_CONFIG: ${{ github.workspace }}/upstream/example.dae
+        run: go test -count=1 -run '^TestUpstreamContract$' -timeout=4m ./internal/dae
