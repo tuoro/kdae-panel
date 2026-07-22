@@ -1,4 +1,4 @@
-.PHONY: dev build test fmt web-install web-build clean
+.PHONY: dev build test vuln fmt web-install web-build clean
 
 BINARY := bin/kdae-panel
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -18,6 +18,9 @@ test:
 	go vet ./...
 	cd web && npm run typecheck
 
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+
 fmt:
 	gofmt -w cmd internal
 
@@ -33,4 +36,3 @@ clean:
 
 release: web-build
 	bash scripts/build-release.sh $(VERSION)
-

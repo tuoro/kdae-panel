@@ -6,34 +6,48 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: '1.24.x'
+          go-version: '1.25.12'
           cache: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.x'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
       - run: npm ci --prefix web
-      - run: npm run build --prefix web
+      - name: 完整发布前验证
+        run: |
+          npm run typecheck --prefix web
+          npm run build --prefix web
+          git diff --exit-code -- internal/webui/dist
+          go test ./...
+          go vet ./...
+          go test -race ./internal/app ./internal/auth ./internal/configstore ./internal/dae ./internal/host
+          go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
       - run: bash scripts/build-release.sh "${GITHUB_REF_NAME}"
 
-      - uses: softprops/action-gh-release@v2
+      - name: 生成发布来源证明
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: 'dist/*.tar.gz'
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           generate_release_notes: true
           files: |
             dist/*.tar.gz
             dist/SHA256SUMS
-

@@ -20,7 +20,7 @@
 
 ## 快速安装
 
-依赖 Go 1.24+、Node.js 22+，运行环境需要 systemd，并预先安装可正常运行的 dae。
+依赖 Go 1.25.12+、Node.js 22+，运行环境需要 systemd，并预先安装可正常运行的 dae。
 
 ```bash
 git clone https://github.com/tuoro/kdae-panel.git
@@ -68,6 +68,7 @@ npm run typecheck --prefix web
 npm run build --prefix web
 go test ./...
 go vet ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
 ```
 
 ## 上游兼容

@@ -342,15 +342,15 @@ func (m *Manager) writeCandidate(content []byte, mode os.FileMode) (string, func
 	}
 	path := file.Name()
 	cleanup := func() { _ = os.Remove(path) }
-	if err := file.Chmod(mode); err != nil {
-		_ = file.Close()
-		cleanup()
-		return "", func() {}, fmt.Errorf("设置候选配置权限: %w", err)
-	}
 	if _, err := file.Write(content); err != nil {
 		_ = file.Close()
 		cleanup()
 		return "", func() {}, fmt.Errorf("写入候选配置: %w", err)
+	}
+	if err := file.Chmod(mode); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", func() {}, fmt.Errorf("设置候选配置权限: %w", err)
 	}
 	if err := file.Sync(); err != nil {
 		_ = file.Close()

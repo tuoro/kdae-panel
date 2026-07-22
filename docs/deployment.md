@@ -5,7 +5,7 @@
 - Linux 与 systemd；
 - 已安装并能够通过 `systemctl status dae` 正常运行的 dae；
 - `/etc/dae/config.dae` 是实际入口配置；
-- 构建阶段需要 Go 1.24+ 和 Node.js 22+；
+- 构建阶段需要 Go 1.25.12+ 和 Node.js 22+；
 - 运行阶段不需要 Node.js。
 
 ## 从源码安装
@@ -94,7 +94,7 @@ KDAE_PANEL_SECURE_COOKIE=true
 - 通过 systemd 启停服务；
 - 读取系统日志和 sysdump。
 
-单元通过 `ProtectSystem`、`ProtectHome`、`NoNewPrivileges`、能力白名单、地址族限制和只读系统路径降低暴露面。`ProtectProc=invisible` 会隐藏其他进程，但保留 `/proc/sys/net`，供 dae sysdump 采集 sysctl。不要移除登录认证后对外开放，也不要让其他用户写入环境文件、数据库或面板二进制。
+单元通过 `ProtectSystem`、`ProtectHome`、`NoNewPrivileges`、能力白名单、地址族限制和只读系统路径降低暴露面。默认只保留 `CAP_KILL`、`CAP_NET_ADMIN`，可写路径仅为 `/etc/dae` 和 `/var/lib/kdae-panel`；`/run` 只读即可连接 systemd socket 并读取 dae 状态文件。`ProtectProc=invisible` 会隐藏其他进程，但保留 `/proc/sys/net`，供 dae sysdump 采集 sysctl。不要移除登录认证后对外开放，也不要让其他用户写入环境文件、数据库或面板二进制。
 
 ## 升级面板
 
@@ -124,6 +124,8 @@ sudo systemctl restart dae
 ```
 
 刷新面板后，它会重新执行 `--help` 和 `export outline`，自动读取新版本能力。生产环境仍应保留旧二进制，以便遇到上游破坏性变化时回滚。
+
+正式发布包会附带 SHA-256 清单和 GitHub OIDC 来源证明，可使用 `gh attestation verify <归档> --repo tuoro/kdae-panel` 验证归档确实由仓库发布流程生成。
 
 ## 卸载
 
