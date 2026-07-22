@@ -50,7 +50,9 @@ X-CSRF-Token: <csrfToken>
 }
 ```
 
-`expectedHash` 不匹配时返回 HTTP `409`，防止覆盖外部修改。`apply` 默认为 `true`。
+入口配置已经存在时，`expectedHash` 必填且不匹配时返回 HTTP `409`，防止覆盖外部修改；新建入口配置时必须为空。`apply` 默认为 `true`。
+
+配置保存、备份恢复和服务控制操作会共享串行门；已有操作执行时返回 `409 operation_in_progress`，避免多个控制动作交叉执行。
 
 常见错误码：
 

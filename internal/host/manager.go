@@ -206,7 +206,7 @@ func parseJournal(output string) ([]LogEntry, error) {
 		if err := json.Unmarshal([]byte(line), &raw); err != nil {
 			return nil, fmt.Errorf("解析 journald JSON: %w", err)
 		}
-		priority := parseInt(rawString(raw["PRIORITY"]))
+		priority := parsePriority(rawString(raw["PRIORITY"]))
 		entries = append(entries, LogEntry{
 			Timestamp: journalTimestamp(rawString(raw["__REALTIME_TIMESTAMP"])),
 			Priority:  priority,
@@ -251,6 +251,14 @@ func priorityLevel(priority int) string {
 		return "unknown"
 	}
 	return levels[priority]
+}
+
+func parsePriority(value string) int {
+	priority, err := strconv.Atoi(value)
+	if err != nil || priority < 0 || priority > 7 {
+		return -1
+	}
+	return priority
 }
 
 func validUnitName(value string) bool {

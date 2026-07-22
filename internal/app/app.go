@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/tuoro/kdae-panel/internal/auth"
@@ -20,8 +21,9 @@ import (
 )
 
 type App struct {
-	handler http.Handler
-	closers []io.Closer
+	handler    http.Handler
+	closers    []io.Closer
+	operations *sync.Mutex
 }
 
 type DaeService interface {
@@ -117,6 +119,7 @@ func NewWithDependencies(cfg Config, logger *slog.Logger, dependencies Dependenc
 		return nil, err
 	}
 	router := http.NewServeMux()
+	operations := &sync.Mutex{}
 	router.HandleFunc("GET /api/v1/health", func(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusOK, map[string]any{
 			"status":  "ok",
@@ -134,9 +137,14 @@ func NewWithDependencies(cfg Config, logger *slog.Logger, dependencies Dependenc
 		}
 		writeJSON(writer, http.StatusOK, outline)
 	})
-	registerConfigurationRoutes(router, dependencies.Configuration)
-	registerServiceRoutes(router, dependencies.Dae, dependencies.Host)
+	registerConfigurationRoutes(router, dependencies.Configuration, operations)
+	registerServiceRoutes(router, dependencies.Dae, dependencies.Host, operations)
 	registerAuthenticationRoutes(router, dependencies.Authentication, cfg.SecureCookie, cfg.BootstrapToken, proxyTrust)
+	apiNotFound := func(writer http.ResponseWriter, _ *http.Request) {
+		writeAPIError(writer, http.StatusNotFound, "api_not_found", "API 路径不存在")
+	}
+	router.HandleFunc("/api", apiNotFound)
+	router.HandleFunc("/api/", apiNotFound)
 	router.Handle("/", webui.Handler())
 
 	var handler http.Handler = router
@@ -145,8 +153,16 @@ func NewWithDependencies(cfg Config, logger *slog.Logger, dependencies Dependenc
 	}
 	handler = securityHeaders(handler, proxyTrust)
 	handler = recoverer(handler, logger)
-	handler = requestLogger(logger)(handler)
-	return &App{handler: handler}, nil
+	handler = requestLogger(logger, proxyTrust)(handler)
+	return &App{handler: handler, operations: operations}, nil
+}
+
+func acquireOperation(writer http.ResponseWriter, operations *sync.Mutex) bool {
+	if operations.TryLock() {
+		return true
+	}
+	writeAPIError(writer, http.StatusConflict, "operation_in_progress", "另一个控制操作正在执行，请稍后重试")
+	return false
 }
 
 func newBootstrapToken() (string, error) {
@@ -184,14 +200,50 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(writer).Encode(value)
 }
 
-func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	status   int
+	bytes    int
+	username string
+}
+
+func (w *loggingResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *loggingResponseWriter) Write(content []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	written, err := w.ResponseWriter.Write(content)
+	w.bytes += written
+	return written, err
+}
+
+func (w *loggingResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func requestLogger(logger *slog.Logger, proxyTrust proxyTrust) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			startedAt := time.Now()
-			next.ServeHTTP(writer, request)
+			recorder := &loggingResponseWriter{ResponseWriter: writer}
+			next.ServeHTTP(recorder, request)
+			if recorder.status == 0 {
+				recorder.status = http.StatusOK
+			}
 			logger.Info("HTTP 请求",
 				"method", request.Method,
 				"path", request.URL.Path,
+				"status", recorder.status,
+				"bytes", recorder.bytes,
+				"client", proxyTrust.clientAddress(request),
+				"user", recorder.username,
 				"duration", time.Since(startedAt),
 			)
 		})

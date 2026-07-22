@@ -152,6 +152,27 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestUnknownAPIUsesJSONNotFound(t *testing.T) {
+	application, err := NewWithDae(
+		Config{Version: "test-version"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		stubDaeService{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/unknown", nil)
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d，响应 = %s", recorder.Code, recorder.Body.String())
+	}
+	if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "application/json") {
+		t.Fatalf("Content-Type = %q", contentType)
+	}
+}
+
 func TestDaeCapabilities(t *testing.T) {
 	service := stubDaeService{report: dae.Report{
 		Available:  true,
@@ -242,6 +263,26 @@ func TestServiceRestartAction(t *testing.T) {
 	}
 	if len(hostService.actions) != 1 || hostService.actions[0] != host.ActionRestart {
 		t.Fatalf("服务动作异常: %v", hostService.actions)
+	}
+}
+
+func TestControlOperationRejectsConcurrentAction(t *testing.T) {
+	application, err := NewWithDependencies(
+		Config{Version: "test-panel"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Dependencies{Dae: stubDaeService{}, Host: &stubHostService{}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.operations.Lock()
+	defer application.operations.Unlock()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/service/actions/restart", nil)
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("并发控制操作状态码 = %d，响应 = %s", recorder.Code, recorder.Body.String())
 	}
 }
 

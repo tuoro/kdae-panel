@@ -15,7 +15,11 @@ import (
 	"time"
 )
 
-const MaxConfigBytes = 8 << 20
+const (
+	MaxConfigBytes        = 8 << 20
+	defaultMaxBackups     = 50
+	defaultMaxBackupBytes = 256 << 20
+)
 
 var (
 	ErrNotFound = errors.New("配置不存在")
@@ -28,11 +32,13 @@ type Controller interface {
 }
 
 type Manager struct {
-	entryPath string
-	backupDir string
-	control   Controller
-	mu        sync.Mutex
-	now       func() time.Time
+	entryPath      string
+	backupDir      string
+	control        Controller
+	maxBackups     int
+	maxBackupBytes int64
+	mu             sync.Mutex
+	now            func() time.Time
 }
 
 type Document struct {
@@ -93,6 +99,10 @@ func (e *ApplyError) Unwrap() error {
 }
 
 func NewManager(entryPath, backupDir string, controller Controller) (*Manager, error) {
+	return NewManagerWithBackupLimits(entryPath, backupDir, controller, defaultMaxBackups, defaultMaxBackupBytes)
+}
+
+func NewManagerWithBackupLimits(entryPath, backupDir string, controller Controller, maxBackups int, maxBackupBytes int64) (*Manager, error) {
 	if strings.TrimSpace(entryPath) == "" {
 		return nil, errors.New("dae 入口配置路径不能为空")
 	}
@@ -101,6 +111,9 @@ func NewManager(entryPath, backupDir string, controller Controller) (*Manager, e
 	}
 	if controller == nil {
 		return nil, errors.New("dae 控制器不能为空")
+	}
+	if maxBackups <= 0 || maxBackupBytes <= 0 {
+		return nil, errors.New("配置备份保留策略无效")
 	}
 	absEntry, err := filepath.Abs(entryPath)
 	if err != nil {
@@ -111,10 +124,12 @@ func NewManager(entryPath, backupDir string, controller Controller) (*Manager, e
 		return nil, fmt.Errorf("解析备份目录: %w", err)
 	}
 	return &Manager{
-		entryPath: absEntry,
-		backupDir: absBackup,
-		control:   controller,
-		now:       time.Now,
+		entryPath:      absEntry,
+		backupDir:      absBackup,
+		control:        controller,
+		maxBackups:     maxBackups,
+		maxBackupBytes: maxBackupBytes,
+		now:            time.Now,
 	}, nil
 }
 
@@ -142,6 +157,10 @@ func (m *Manager) Validate(ctx context.Context, content string) error {
 func (m *Manager) Save(ctx context.Context, content, expectedHash string, apply bool) (SaveResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.saveUnlocked(ctx, content, expectedHash, apply)
+}
+
+func (m *Manager) saveUnlocked(ctx context.Context, content, expectedHash string, apply bool) (SaveResult, error) {
 
 	newContent := []byte(content)
 	if len(newContent) > MaxConfigBytes {
@@ -151,6 +170,12 @@ func (m *Manager) Save(ctx context.Context, content, expectedHash string, apply 
 	oldContent, oldInfo, oldHash, existed, err := m.readCurrentBytes()
 	if err != nil {
 		return SaveResult{}, err
+	}
+	if existed && expectedHash == "" {
+		return SaveResult{}, ErrConflict
+	}
+	if !existed && expectedHash != "" {
+		return SaveResult{}, ErrConflict
 	}
 	if expectedHash != "" && expectedHash != oldHash {
 		return SaveResult{}, ErrConflict
@@ -224,13 +249,16 @@ func (m *Manager) ListBackups(_ context.Context) ([]Backup, error) {
 	}
 	backups := make([]Backup, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".dae") {
+		if !strings.HasSuffix(entry.Name(), ".dae") {
 			continue
 		}
 		path := filepath.Join(m.backupDir, entry.Name())
 		info, err := entry.Info()
 		if err != nil {
 			return nil, fmt.Errorf("读取备份信息 %s: %w", entry.Name(), err)
+		}
+		if !info.Mode().IsRegular() {
+			continue
 		}
 		content, err := readFileLimited(path)
 		if err != nil {
@@ -251,6 +279,9 @@ func (m *Manager) ListBackups(_ context.Context) ([]Backup, error) {
 }
 
 func (m *Manager) Restore(ctx context.Context, backupID, expectedHash string, apply bool) (SaveResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if filepath.Base(backupID) != backupID || !strings.HasSuffix(backupID, ".dae") {
 		return SaveResult{}, ErrNotFound
 	}
@@ -261,7 +292,7 @@ func (m *Manager) Restore(ctx context.Context, backupID, expectedHash string, ap
 		}
 		return SaveResult{}, err
 	}
-	return m.Save(ctx, string(content), expectedHash, apply)
+	return m.saveUnlocked(ctx, string(content), expectedHash, apply)
 }
 
 func (m *Manager) readUnlocked() (Document, error) {
@@ -337,6 +368,9 @@ func (m *Manager) createBackup(content []byte) (string, error) {
 	if err := os.MkdirAll(m.backupDir, 0700); err != nil {
 		return "", fmt.Errorf("创建配置备份目录: %w", err)
 	}
+	if err := m.pruneBackups(int64(len(content))); err != nil {
+		return "", err
+	}
 	id := m.now().UTC().Format("20060102T150405.000000000Z") + "-" + hashBytes(content)[:12] + ".dae"
 	path := filepath.Join(m.backupDir, id)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -357,6 +391,9 @@ func (m *Manager) createBackup(content []byte) (string, error) {
 		_ = os.Remove(path)
 		return "", fmt.Errorf("关闭配置备份: %w", err)
 	}
+	if err := syncDirectory(m.backupDir); err != nil {
+		return "", fmt.Errorf("同步配置备份目录: %w", err)
+	}
 	return id, nil
 }
 
@@ -364,6 +401,9 @@ func (m *Manager) rollback(content []byte, mode os.FileMode, existed bool) error
 	if !existed {
 		if err := os.Remove(m.entryPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("删除失败配置: %w", err)
+		}
+		if err := syncDirectory(filepath.Dir(m.entryPath)); err != nil {
+			return fmt.Errorf("同步配置目录: %w", err)
 		}
 		return nil
 	}
@@ -380,6 +420,13 @@ func (m *Manager) rollback(content []byte, mode os.FileMode, existed bool) error
 }
 
 func readFileLimited(path string) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("文件 %s 不是普通文件", path)
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -393,6 +440,57 @@ func readFileLimited(path string) ([]byte, error) {
 		return nil, fmt.Errorf("文件 %s 超过 %d 字节限制", path, MaxConfigBytes)
 	}
 	return content, nil
+}
+
+type backupFile struct {
+	id        string
+	size      int64
+	createdAt time.Time
+}
+
+func (m *Manager) pruneBackups(reservedBytes int64) error {
+	entries, err := os.ReadDir(m.backupDir)
+	if err != nil {
+		return fmt.Errorf("读取配置备份目录: %w", err)
+	}
+	backups := make([]backupFile, 0, len(entries))
+	var total int64
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".dae") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("读取备份信息 %s: %w", entry.Name(), err)
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		backups = append(backups, backupFile{id: entry.Name(), size: info.Size(), createdAt: info.ModTime()})
+		total += info.Size()
+	}
+	sort.Slice(backups, func(i, j int) bool {
+		return backups[i].createdAt.Before(backups[j].createdAt)
+	})
+	removed := false
+	for len(backups) >= m.maxBackups || total+reservedBytes > m.maxBackupBytes {
+		if len(backups) == 0 {
+			return fmt.Errorf("备份保留上限 %d 字节小于当前候选配置", m.maxBackupBytes)
+		}
+		oldest := backups[0]
+		if err := os.Remove(filepath.Join(m.backupDir, oldest.id)); err != nil {
+			return fmt.Errorf("清理旧备份 %s: %w", oldest.id, err)
+		}
+		backups = backups[1:]
+		total -= oldest.size
+		removed = true
+	}
+	if removed {
+		if err := syncDirectory(m.backupDir); err != nil {
+			return fmt.Errorf("同步配置备份目录: %w", err)
+		}
+	}
+	return nil
 }
 
 func hashBytes(content []byte) string {

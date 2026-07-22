@@ -77,6 +77,16 @@ func TestLogs(t *testing.T) {
 	}
 }
 
+func TestLogsRejectInvalidPriorityValue(t *testing.T) {
+	entries, err := parseJournal("{\"PRIORITY\":\"invalid\",\"MESSAGE\":\"test\"}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Priority != -1 || entries[0].Level != "unknown" {
+		t.Fatalf("非法优先级解析结果 = %+v", entries)
+	}
+}
+
 func TestCommandError(t *testing.T) {
 	runner := &fakeRunner{
 		results: map[string]command.Result{"systemctl start dae": {Stderr: "permission denied"}},

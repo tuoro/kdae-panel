@@ -97,6 +97,14 @@ func TestSaveRejectsStaleHash(t *testing.T) {
 	}
 }
 
+func TestSaveRequiresHashForExistingConfig(t *testing.T) {
+	manager, _ := newTestManager(t, "current", &fakeController{})
+	_, err := manager.Save(context.Background(), "new", "", false)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("错误 = %v，期望配置冲突", err)
+	}
+}
+
 func TestSaveDetectsExternalChangeDuringValidation(t *testing.T) {
 	controller := &fakeController{}
 	manager, entryPath := newTestManager(t, "current", controller)
@@ -177,6 +185,47 @@ func TestListAndRestoreBackup(t *testing.T) {
 	restored, _ := manager.Read(context.Background())
 	if restored.Content != "version one" {
 		t.Fatalf("恢复后内容 = %q", restored.Content)
+	}
+}
+
+func TestBackupRetentionRemovesOldestBackup(t *testing.T) {
+	controller := &fakeController{}
+	dir := t.TempDir()
+	entryPath := filepath.Join(dir, "config.dae")
+	if err := os.WriteFile(entryPath, []byte("version one"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewManagerWithBackupLimits(entryPath, filepath.Join(dir, "backups"), controller, 2, MaxConfigBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 7, 21, 1, 2, 3, 0, time.UTC)
+	manager.now = func() time.Time { return base }
+
+	for _, content := range []string{"version two", "version three", "version four"} {
+		current, err := manager.Read(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := manager.Save(context.Background(), content, current.Hash, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	backups, err := manager.ListBackups(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 2 {
+		t.Fatalf("备份数量 = %d，期望 2", len(backups))
+	}
+	for _, backup := range backups {
+		content, err := os.ReadFile(filepath.Join(manager.backupDir, backup.ID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(content) == "version one" {
+			t.Fatal("最旧备份没有被清理")
+		}
 	}
 }
 

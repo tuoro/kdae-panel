@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/tuoro/kdae-panel/internal/configstore"
 )
@@ -20,7 +21,7 @@ type restoreBackupRequest struct {
 	Apply        *bool  `json:"apply,omitempty"`
 }
 
-func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationService) {
+func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationService, operations *sync.Mutex) {
 	if service == nil {
 		unavailable := func(writer http.ResponseWriter, _ *http.Request) {
 			writeAPIError(writer, http.StatusServiceUnavailable, "configuration_unavailable", "配置管理服务尚未初始化")
@@ -57,6 +58,10 @@ func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationSer
 		if !decodeJSONBody(writer, request, &payload) {
 			return
 		}
+		if !acquireOperation(writer, operations) {
+			return
+		}
+		defer operations.Unlock()
 		result, err := service.Save(
 			request.Context(),
 			payload.Content,
@@ -82,6 +87,10 @@ func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationSer
 		if !decodeJSONBody(writer, request, &payload) {
 			return
 		}
+		if !acquireOperation(writer, operations) {
+			return
+		}
+		defer operations.Unlock()
 		result, err := service.Restore(
 			request.Context(),
 			request.PathValue("id"),

@@ -55,6 +55,7 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 		}
 		response := authStatusResponse{Initialized: initialized, BootstrapRequired: !initialized && bootstrapToken != ""}
 		if session, ok := optionalSession(request, service); ok {
+			setRequestUser(writer, session.User.Username)
 			response.Authenticated = true
 			response.User = &session.User
 			response.CSRFToken = session.CSRFToken
@@ -102,6 +103,7 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 			return
 		}
 		setupLimiter.Success(setupKey)
+		setRequestUser(writer, session.User.Username)
 		setSessionCookie(writer, session, secureCookie || proxyTrust.requestScheme(request) == "https")
 		writer.Header().Set("Cache-Control", "no-store")
 		writeJSON(writer, http.StatusCreated, sessionResponse(session))
@@ -131,6 +133,7 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 			return
 		}
 		limiter.Success(keys...)
+		setRequestUser(writer, session.User.Username)
 		setSessionCookie(writer, session, secureCookie || proxyTrust.requestScheme(request) == "https")
 		writer.Header().Set("Cache-Control", "no-store")
 		writeJSON(writer, http.StatusOK, sessionResponse(session))
@@ -192,6 +195,7 @@ func authenticationMiddleware(next http.Handler, service AuthenticationService, 
 			writeAPIError(writer, http.StatusUnauthorized, "authentication_required", "登录会话无效或已过期")
 			return
 		}
+		setRequestUser(writer, session.User.Username)
 		if request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions {
 			if !sameOrigin(request, proxyTrust) {
 				writeAPIError(writer, http.StatusForbidden, "origin_rejected", "请求来源与面板地址不一致")
@@ -206,6 +210,12 @@ func authenticationMiddleware(next http.Handler, service AuthenticationService, 
 		ctx := context.WithValue(request.Context(), authContextKey{}, session)
 		next.ServeHTTP(writer, request.WithContext(ctx))
 	})
+}
+
+func setRequestUser(writer http.ResponseWriter, username string) {
+	if recorder, ok := writer.(*loggingResponseWriter); ok {
+		recorder.username = username
+	}
 }
 
 func publicAPIPath(path string) bool {

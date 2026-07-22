@@ -239,14 +239,14 @@ func (s *Store) GetSession(ctx context.Context, token string) (Session, error) {
 	}
 	tokenHash := hashToken(token)
 	var session Session
-	var createdAt, expiresAt int64
+	var createdAt, expiresAt, lastSeenAt int64
 	err := s.db.QueryRowContext(
 		ctx,
-		`SELECT s.csrf_token, s.expires_at, u.id, u.username, u.created_at
+		`SELECT s.csrf_token, s.expires_at, s.last_seen_at, u.id, u.username, u.created_at
 		 FROM sessions s JOIN users u ON u.id = s.user_id
 		 WHERE s.token_hash = ?`,
 		tokenHash[:],
-	).Scan(&session.CSRFToken, &expiresAt, &session.User.ID, &session.User.Username, &createdAt)
+	).Scan(&session.CSRFToken, &expiresAt, &lastSeenAt, &session.User.ID, &session.User.Username, &createdAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, ErrInvalidSession
@@ -261,7 +261,9 @@ func (s *Store) GetSession(ctx context.Context, token string) (Session, error) {
 	session.Token = token
 	session.ExpiresAt = time.Unix(expiresAt, 0).UTC()
 	session.User.CreatedAt = time.Unix(createdAt, 0).UTC()
-	_, _ = s.db.ExecContext(ctx, "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", now.Unix(), tokenHash[:])
+	if now.Unix()-lastSeenAt >= int64((5*time.Minute)/time.Second) {
+		_, _ = s.db.ExecContext(ctx, "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?", now.Unix(), tokenHash[:])
+	}
 	return session, nil
 }
 

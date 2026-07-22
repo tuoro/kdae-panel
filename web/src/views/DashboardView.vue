@@ -139,15 +139,15 @@ onMounted(() => void refresh())
         <NCard title="服务控制" class="panel-card">
           <template #header-extra><NTag size="small" :type="statusType">{{ service?.name || 'dae' }}</NTag></template>
           <NSpace wrap>
-            <NButton type="success" :disabled="running" :loading="actionLoading === 'start'" @click="runAction('start')">
+            <NButton type="success" :disabled="actionLoading !== '' || running" :loading="actionLoading === 'start'" @click="runAction('start')">
               <template #icon><NIcon><PlayOutline /></NIcon></template>启动
             </NButton>
-            <NButton type="primary" :disabled="!running" :loading="actionLoading === 'reload'" @click="runAction('reload')">
+            <NButton type="primary" :disabled="actionLoading !== '' || !running" :loading="actionLoading === 'reload'" @click="runAction('reload')">
               <template #icon><NIcon><ReloadOutline /></NIcon></template>无损重载
             </NButton>
             <NPopconfirm positive-text="确认重启" negative-text="取消" @positive-click="runAction('restart')">
               <template #trigger>
-                <NButton :disabled="!running" :loading="actionLoading === 'restart'">
+                <NButton :disabled="actionLoading !== '' || !running" :loading="actionLoading === 'restart'">
                   <template #icon><NIcon><RefreshOutline /></NIcon></template>重启
                 </NButton>
               </template>
@@ -155,7 +155,7 @@ onMounted(() => void refresh())
             </NPopconfirm>
             <NPopconfirm positive-text="确认暂停" negative-text="取消" @positive-click="runAction('suspend')">
               <template #trigger>
-                <NButton :disabled="!running" :loading="actionLoading === 'suspend'">
+                <NButton :disabled="actionLoading !== '' || !running" :loading="actionLoading === 'suspend'">
                   <template #icon><NIcon><PauseOutline /></NIcon></template>暂停
                 </NButton>
               </template>
@@ -163,7 +163,7 @@ onMounted(() => void refresh())
             </NPopconfirm>
             <NPopconfirm positive-text="确认停止" negative-text="取消" @positive-click="runAction('stop')">
               <template #trigger>
-                <NButton type="error" ghost :disabled="!running" :loading="actionLoading === 'stop'">
+                <NButton type="error" ghost :disabled="actionLoading !== '' || !running" :loading="actionLoading === 'stop'">
                   <template #icon><NIcon><StopOutline /></NIcon></template>停止
                 </NButton>
               </template>

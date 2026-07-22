@@ -21,7 +21,7 @@ type Runner interface {
 	Run(ctx context.Context, name string, args ...string) (Result, error)
 }
 
-// DirectoryRunner supports commands whose output contract depends on the current directory.
+// DirectoryRunner 支持输出契约依赖当前工作目录的命令。
 type DirectoryRunner interface {
 	Runner
 	RunInDir(ctx context.Context, dir, name string, args ...string) (Result, error)

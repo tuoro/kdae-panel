@@ -106,3 +106,37 @@ func TestExpiredSession(t *testing.T) {
 		t.Fatalf("过期会话错误 = %v", err)
 	}
 }
+
+func TestSessionLastSeenWriteIsThrottled(t *testing.T) {
+	store := newTestStore(t)
+	base := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return base }
+	session, err := store.Setup(context.Background(), "admin", "a secure test password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := hashToken(session.Token)
+
+	store.now = func() time.Time { return base.Add(time.Minute) }
+	if _, err := store.GetSession(context.Background(), session.Token); err != nil {
+		t.Fatal(err)
+	}
+	var lastSeen int64
+	if err := store.db.QueryRow("SELECT last_seen_at FROM sessions WHERE token_hash = ?", hash[:]).Scan(&lastSeen); err != nil {
+		t.Fatal(err)
+	}
+	if lastSeen != base.Unix() {
+		t.Fatalf("一分钟内 last_seen_at = %d", lastSeen)
+	}
+
+	store.now = func() time.Time { return base.Add(6 * time.Minute) }
+	if _, err := store.GetSession(context.Background(), session.Token); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRow("SELECT last_seen_at FROM sessions WHERE token_hash = ?", hash[:]).Scan(&lastSeen); err != nil {
+		t.Fatal(err)
+	}
+	if lastSeen != base.Add(6*time.Minute).Unix() {
+		t.Fatalf("六分钟后 last_seen_at = %d", lastSeen)
+	}
+}

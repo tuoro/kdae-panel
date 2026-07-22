@@ -1,4 +1,4 @@
-import{v as g,U as l,y as d,d as v,aO as y,p as m,a9 as b,E as C,F as h,G as _,H as a,cf as $}from"./index-DQLNKWAW.js";import{f as z}from"./text-HG9V2Kv0.js";const R=g("icon",`
+import{v as g,U as l,y as d,d as v,aO as y,p as m,a9 as b,E as C,F as h,G as _,H as a,cf as $}from"./index-C1xjsYS6.js";import{f as z}from"./text-iq4LDUc2.js";const R=g("icon",`
  height: 1em;
  width: 1em;
  line-height: 1em;

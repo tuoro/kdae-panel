@@ -28,3 +28,7 @@ func replaceFile(source, target string) error {
 	}
 	return nil
 }
+
+func syncDirectory(_ string) error {
+	return nil
+}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/tuoro/kdae-panel/internal/host"
 )
@@ -14,7 +15,7 @@ type serviceActionRequest struct {
 	Abort bool `json:"abort"`
 }
 
-func registerServiceRoutes(router *http.ServeMux, daeService DaeService, hostService HostService) {
+func registerServiceRoutes(router *http.ServeMux, daeService DaeService, hostService HostService, operations *sync.Mutex) {
 	router.HandleFunc("GET /api/v1/service", func(writer http.ResponseWriter, request *http.Request) {
 		if hostService == nil {
 			writeAPIError(writer, http.StatusServiceUnavailable, "host_service_unavailable", "主机服务管理尚未初始化")
@@ -34,6 +35,10 @@ func registerServiceRoutes(router *http.ServeMux, daeService DaeService, hostSer
 		if !decodeOptionalJSONBody(writer, request, &payload) {
 			return
 		}
+		if !acquireOperation(writer, operations) {
+			return
+		}
+		defer operations.Unlock()
 
 		var err error
 		switch action {
