@@ -11,6 +11,7 @@ export interface AuthStatus {
   csrfToken?: string
   expiresAt?: string
   bootstrapRequired?: boolean
+  bootstrapAuthorized?: boolean
 }
 
 export interface DaeReport {

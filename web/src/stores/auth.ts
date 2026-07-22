@@ -5,7 +5,6 @@ import type { AuthStatus } from '../types/api'
 interface Credentials {
   username: string
   password: string
-  bootstrapToken?: string
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -15,6 +14,7 @@ export const useAuthStore = defineStore('auth', {
     initialized: false,
     authenticated: false,
     bootstrapRequired: false,
+    bootstrapAuthorized: false,
     user: undefined as AuthStatus['user'],
     expiresAt: undefined as string | undefined,
   }),
@@ -24,6 +24,7 @@ export const useAuthStore = defineStore('auth', {
       this.initialized = status.initialized
       this.authenticated = status.authenticated
       this.bootstrapRequired = Boolean(status.bootstrapRequired)
+      this.bootstrapAuthorized = Boolean(status.bootstrapAuthorized)
       this.user = status.user
       this.expiresAt = status.expiresAt
       setCSRFToken(status.csrfToken || '')
@@ -40,6 +41,13 @@ export const useAuthStore = defineStore('auth', {
     async setup(credentials: Credentials) {
       const status = await postJSON<AuthStatus>('/api/v1/auth/setup', credentials)
       this.applyStatus(status)
+    },
+    async authorizeSetup(token: string) {
+      await postJSON<void>('/api/v1/auth/bootstrap', { token })
+      await this.bootstrap(true)
+      if (this.bootstrapRequired && !this.bootstrapAuthorized) {
+        throw new Error('浏览器未接受初始化授权，请确认通过 HTTPS 或本机地址访问')
+      }
     },
     async login(credentials: Credentials) {
       const status = await postJSON<AuthStatus>('/api/v1/auth/login', credentials)

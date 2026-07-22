@@ -44,6 +44,9 @@ router.beforeEach(async (to) => {
   if (!auth.initialized && to.name !== 'setup') {
     return { name: 'setup' }
   }
+  if (auth.initialized && to.name === 'setup') {
+    return auth.authenticated ? { name: 'dashboard' } : { name: 'login' }
+  }
   if (auth.initialized && !auth.authenticated && !to.meta.public) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }

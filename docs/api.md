@@ -7,7 +7,8 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/auth/status` | 初始化和登录状态 |
-| `POST` | `/auth/setup` | 使用 bootstrap token 创建首个管理员，仅可成功一次 |
+| `POST` | `/auth/bootstrap` | 将一次性初始化链接中的 token 兑换为短时 HttpOnly Cookie |
+| `POST` | `/auth/setup` | 使用短时初始化授权创建首个管理员，仅可成功一次 |
 | `POST` | `/auth/login` | 登录并设置 HttpOnly Cookie |
 | `POST` | `/auth/logout` | 注销当前会话 |
 | `POST` | `/auth/password` | 修改密码并注销旧会话 |
@@ -20,7 +21,7 @@ X-CSRF-Token: <csrfToken>
 
 浏览器会话 Cookie 名为 `kdae_panel_session`，属性为 `HttpOnly`、`SameSite=Strict`，可配置 `Secure`。
 
-未初始化时，`/auth/status` 会返回 `bootstrapRequired: true`。`/auth/setup` 请求必须在 JSON 中提交服务首次启动日志里的 `bootstrapToken`；显式配置 `KDAE_PANEL_BOOTSTRAP_TOKEN` 时使用该固定值。
+未初始化时，`/auth/status` 会返回 `bootstrapRequired: true`。前端从服务启动日志所示 URL 的 `#bootstrap=...` 片段读取 token，调用 `/auth/bootstrap` 兑换一个有效期 10 分钟、`HttpOnly`、`SameSite=Strict` 的初始化 Cookie，并立即从地址栏清除片段。`/auth/setup` 的 JSON 只包含用户名和密码，不再传输 bootstrap token。显式配置 `KDAE_PANEL_BOOTSTRAP_TOKEN` 时，启动日志会基于该固定值生成初始化链接。
 
 ## dae 能力
 

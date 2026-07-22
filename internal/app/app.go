@@ -9,7 +9,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,13 +87,15 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		_ = authStore.Close()
 		return nil, fmt.Errorf("检查管理员初始化状态: %w", err)
 	}
-	if !initialized && cfg.BootstrapToken == "" {
-		cfg.BootstrapToken, err = newBootstrapToken()
-		if err != nil {
-			_ = authStore.Close()
-			return nil, err
+	if !initialized {
+		if cfg.BootstrapToken == "" {
+			cfg.BootstrapToken, err = newBootstrapToken()
+			if err != nil {
+				_ = authStore.Close()
+				return nil, err
+			}
 		}
-		logger.Warn("首次初始化需要 bootstrap token", "bootstrap_token", cfg.BootstrapToken)
+		logger.Warn("首次初始化请打开一次性链接", "setup_url", bootstrapSetupURL(cfg.ListenAddress, cfg.BootstrapToken))
 	}
 	application, err := NewWithDependencies(cfg, logger, Dependencies{
 		Dae:            daeClient,
@@ -171,6 +176,25 @@ func newBootstrapToken() (string, error) {
 		return "", fmt.Errorf("生成 bootstrap token: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(content), nil
+}
+
+func bootstrapSetupURL(listenAddress, token string) string {
+	fragment := "bootstrap=" + token
+	rawFragment := "bootstrap=" + strings.ReplaceAll(url.QueryEscape(token), "+", "%20")
+	host, port, err := net.SplitHostPort(listenAddress)
+	if err != nil {
+		return "/setup#" + rawFragment
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return (&url.URL{
+		Scheme:      "http",
+		Host:        net.JoinHostPort(host, port),
+		Path:        "/setup",
+		Fragment:    fragment,
+		RawFragment: rawFragment,
+	}).String()
 }
 
 func writeAPIError(writer http.ResponseWriter, status int, code, message string) {

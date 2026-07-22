@@ -41,7 +41,7 @@ sudo systemctl restart kdae-panel
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
 | `KDAE_PANEL_LISTEN` | `127.0.0.1:2023` | HTTP 监听地址 |
-| `KDAE_PANEL_BOOTSTRAP_TOKEN` | 空 | 首次初始化 token；留空时启动自动生成并写入服务日志 |
+| `KDAE_PANEL_BOOTSTRAP_TOKEN` | 空 | 一次性初始化链接的根凭证；留空时启动自动生成并仅写入服务日志中的 `setup_url` |
 | `KDAE_PANEL_TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | 可以转发客户端地址和协议的代理 CIDR，逗号分隔 |
 | `KDAE_PANEL_DAE_BINARY` | `/usr/bin/dae` | dae 二进制路径 |
 | `KDAE_PANEL_DAE_CONFIG` | `/etc/dae/config.dae` | dae 入口配置 |
@@ -52,6 +52,8 @@ sudo systemctl restart kdae-panel
 | `KDAE_PANEL_BACKUP_DIR` | `/var/lib/kdae-panel/backups` | 配置备份目录 |
 | `KDAE_PANEL_SESSION_TTL` | `12h` | 会话绝对有效期 |
 | `KDAE_PANEL_SECURE_COOKIE` | `false` | Cookie 是否仅允许 HTTPS |
+
+`setup_url` 默认使用面板的直接监听地址。通过 HTTPS 反向代理访问时，保留 `/setup#bootstrap=...` 部分，并将其协议和主机替换为实际面板地址；URL 片段不会发送给反向代理或写入访问日志。
 
 ## HTTPS
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -372,14 +373,39 @@ func TestSetupRequiresBootstrapTokenAndClosesAfterInitialization(t *testing.T) {
 	}
 
 	rejected := httptest.NewRecorder()
-	rejectedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", strings.NewReader(`{"username":"admin","password":"a secure test password","bootstrapToken":"wrong"}`))
+	rejectedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/bootstrap", strings.NewReader(`{"token":"wrong"}`))
 	application.Handler().ServeHTTP(rejected, rejectedRequest)
 	if rejected.Code != http.StatusForbidden || authService.setupCalls != 0 {
 		t.Fatalf("错误 token 响应: status=%d calls=%d", rejected.Code, authService.setupCalls)
 	}
 
+	unauthorized := httptest.NewRecorder()
+	unauthorizedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", strings.NewReader(`{"username":"admin","password":"a secure test password"}`))
+	application.Handler().ServeHTTP(unauthorized, unauthorizedRequest)
+	if unauthorized.Code != http.StatusForbidden || authService.setupCalls != 0 {
+		t.Fatalf("缺少初始化授权响应: status=%d calls=%d", unauthorized.Code, authService.setupCalls)
+	}
+
+	authorized := httptest.NewRecorder()
+	authorizedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/bootstrap", strings.NewReader(`{"token":"bootstrap-secret"}`))
+	application.Handler().ServeHTTP(authorized, authorizedRequest)
+	if authorized.Code != http.StatusNoContent {
+		t.Fatalf("初始化链接授权失败: status=%d body=%s", authorized.Code, authorized.Body)
+	}
+	var setupCookie *http.Cookie
+	for _, cookie := range authorized.Result().Cookies() {
+		if cookie.Name == setupAuthorizationCookieName {
+			setupCookie = cookie
+			break
+		}
+	}
+	if setupCookie == nil || setupCookie.HttpOnly != true || setupCookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("初始化授权 Cookie 异常: %+v", setupCookie)
+	}
+
 	accepted := httptest.NewRecorder()
-	acceptedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", strings.NewReader(`{"username":"admin","password":"a secure test password","bootstrapToken":"bootstrap-secret"}`))
+	acceptedRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/setup", strings.NewReader(`{"username":"admin","password":"a secure test password"}`))
+	acceptedRequest.AddCookie(setupCookie)
 	application.Handler().ServeHTTP(accepted, acceptedRequest)
 	if accepted.Code != http.StatusCreated || authService.setupCalls != 1 {
 		t.Fatalf("正确 token 响应: status=%d body=%s calls=%d", accepted.Code, accepted.Body, authService.setupCalls)
@@ -391,6 +417,49 @@ func TestSetupRequiresBootstrapTokenAndClosesAfterInitialization(t *testing.T) {
 	application.Handler().ServeHTTP(closed, closedRequest)
 	if closed.Code != http.StatusConflict || authService.setupCalls != 1 {
 		t.Fatalf("已初始化响应: status=%d calls=%d", closed.Code, authService.setupCalls)
+	}
+}
+
+func TestSetupAuthorizationExpiresAndRejectsTampering(t *testing.T) {
+	expiresAt := time.Date(2026, 7, 23, 12, 10, 0, 0, time.UTC)
+	value := newSetupAuthorization("bootstrap-secret", expiresAt)
+
+	validRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	validRequest.AddCookie(&http.Cookie{Name: setupAuthorizationCookieName, Value: value})
+	if !validSetupAuthorization(validRequest, "bootstrap-secret", expiresAt.Add(-time.Second)) {
+		t.Fatal("未过期的初始化授权应当有效")
+	}
+	if validSetupAuthorization(validRequest, "bootstrap-secret", expiresAt) {
+		t.Fatal("到期的初始化授权应当失效")
+	}
+
+	tamperedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/status", nil)
+	tamperedRequest.AddCookie(&http.Cookie{Name: setupAuthorizationCookieName, Value: value + "x"})
+	if validSetupAuthorization(tamperedRequest, "bootstrap-secret", expiresAt.Add(-time.Second)) {
+		t.Fatal("被篡改的初始化授权不应通过")
+	}
+}
+
+func TestBootstrapSetupURLUsesLoopbackForWildcardListen(t *testing.T) {
+	got := bootstrapSetupURL("0.0.0.0:2023", "secret")
+	want := "http://127.0.0.1:2023/setup#bootstrap=secret"
+	if got != want {
+		t.Fatalf("初始化链接 = %q，期望 %q", got, want)
+	}
+}
+
+func TestBootstrapSetupURLEscapesConfiguredToken(t *testing.T) {
+	token := "token with & + #"
+	parsed, err := url.Parse(bootstrapSetupURL("127.0.0.1:2023", token))
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := url.ParseQuery(parsed.EscapedFragment())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values.Get("bootstrap") != token {
+		t.Fatalf("初始化链接 token = %q，期望 %q", values.Get("bootstrap"), token)
 	}
 }
 

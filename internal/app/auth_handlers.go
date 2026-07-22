@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/url"
@@ -14,16 +17,23 @@ import (
 	"github.com/tuoro/kdae-panel/internal/auth"
 )
 
-const sessionCookieName = "kdae_panel_session"
+const (
+	sessionCookieName            = "kdae_panel_session"
+	setupAuthorizationCookieName = "kdae_panel_setup"
+	setupAuthorizationTTL        = 10 * time.Minute
+)
 
 const maxLoginAttempts = 4096
 
 type authContextKey struct{}
 
 type credentialsRequest struct {
-	Username       string `json:"username"`
-	Password       string `json:"password"`
-	BootstrapToken string `json:"bootstrapToken,omitempty"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type bootstrapRequest struct {
+	Token string `json:"token"`
 }
 
 type changePasswordRequest struct {
@@ -32,12 +42,13 @@ type changePasswordRequest struct {
 }
 
 type authStatusResponse struct {
-	Initialized       bool       `json:"initialized"`
-	Authenticated     bool       `json:"authenticated"`
-	User              *auth.User `json:"user,omitempty"`
-	CSRFToken         string     `json:"csrfToken,omitempty"`
-	ExpiresAt         time.Time  `json:"expiresAt,omitempty"`
-	BootstrapRequired bool       `json:"bootstrapRequired,omitempty"`
+	Initialized         bool       `json:"initialized"`
+	Authenticated       bool       `json:"authenticated"`
+	User                *auth.User `json:"user,omitempty"`
+	CSRFToken           string     `json:"csrfToken,omitempty"`
+	ExpiresAt           time.Time  `json:"expiresAt,omitempty"`
+	BootstrapRequired   bool       `json:"bootstrapRequired,omitempty"`
+	BootstrapAuthorized bool       `json:"bootstrapAuthorized,omitempty"`
 }
 
 func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationService, secureCookie bool, bootstrapToken string, proxyTrust proxyTrust) {
@@ -53,7 +64,11 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 			writeAPIError(writer, http.StatusInternalServerError, "authentication_error", err.Error())
 			return
 		}
-		response := authStatusResponse{Initialized: initialized, BootstrapRequired: !initialized && bootstrapToken != ""}
+		response := authStatusResponse{
+			Initialized:         initialized,
+			BootstrapRequired:   !initialized && bootstrapToken != "",
+			BootstrapAuthorized: !initialized && bootstrapToken != "" && validSetupAuthorization(request, bootstrapToken, time.Now()),
+		}
 		if session, ok := optionalSession(request, service); ok {
 			setRequestUser(writer, session.User.Username)
 			response.Authenticated = true
@@ -63,6 +78,43 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 		}
 		writer.Header().Set("Cache-Control", "no-store")
 		writeJSON(writer, http.StatusOK, response)
+	})
+
+	router.HandleFunc("POST /api/v1/auth/bootstrap", func(writer http.ResponseWriter, request *http.Request) {
+		if !sameOrigin(request, proxyTrust) {
+			writeAPIError(writer, http.StatusForbidden, "origin_rejected", "请求来源与面板地址不一致")
+			return
+		}
+		initialized, err := service.Initialized(request.Context())
+		if err != nil {
+			writeAPIError(writer, http.StatusInternalServerError, "authentication_error", "认证服务内部错误")
+			return
+		}
+		if initialized {
+			writeAuthenticationError(writer, auth.ErrAlreadyInitialized)
+			return
+		}
+		setupKey := "setup\x00" + proxyTrust.clientAddress(request)
+		if retryAfter, allowed := setupLimiter.Allow(setupKey); !allowed {
+			writer.Header().Set("Retry-After", strconv.Itoa(max(int(retryAfter.Seconds()), 1)))
+			writeAPIError(writer, http.StatusTooManyRequests, "setup_rate_limited", "初始化尝试过多，请稍后重试")
+			return
+		}
+		var payload bootstrapRequest
+		if !decodeSmallJSONBody(writer, request, &payload) {
+			return
+		}
+		if bootstrapToken != "" && subtle.ConstantTimeCompare([]byte(payload.Token), []byte(bootstrapToken)) != 1 {
+			setupLimiter.Failure(setupKey)
+			writeAPIError(writer, http.StatusForbidden, "bootstrap_token_rejected", "初始化链接无效")
+			return
+		}
+		setupLimiter.Success(setupKey)
+		if bootstrapToken != "" {
+			setSetupAuthorizationCookie(writer, bootstrapToken, secureCookie || proxyTrust.requestScheme(request) == "https")
+		}
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.WriteHeader(http.StatusNoContent)
 	})
 
 	router.HandleFunc("POST /api/v1/auth/setup", func(writer http.ResponseWriter, request *http.Request) {
@@ -89,9 +141,9 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 		if !decodeSmallJSONBody(writer, request, &payload) {
 			return
 		}
-		if bootstrapToken != "" && subtle.ConstantTimeCompare([]byte(payload.BootstrapToken), []byte(bootstrapToken)) != 1 {
+		if bootstrapToken != "" && !validSetupAuthorization(request, bootstrapToken, time.Now()) {
 			setupLimiter.Failure(setupKey)
-			writeAPIError(writer, http.StatusForbidden, "bootstrap_token_rejected", "bootstrap token 无效")
+			writeAPIError(writer, http.StatusForbidden, "setup_authorization_required", "请使用服务日志中的一次性初始化链接")
 			return
 		}
 		session, err := service.Setup(request.Context(), payload.Username, payload.Password)
@@ -104,6 +156,7 @@ func registerAuthenticationRoutes(router *http.ServeMux, service AuthenticationS
 		}
 		setupLimiter.Success(setupKey)
 		setRequestUser(writer, session.User.Username)
+		clearSetupAuthorizationCookie(writer, secureCookie || proxyTrust.requestScheme(request) == "https")
 		setSessionCookie(writer, session, secureCookie || proxyTrust.requestScheme(request) == "https")
 		writer.Header().Set("Cache-Control", "no-store")
 		writeJSON(writer, http.StatusCreated, sessionResponse(session))
@@ -220,11 +273,66 @@ func setRequestUser(writer http.ResponseWriter, username string) {
 
 func publicAPIPath(path string) bool {
 	switch path {
-	case "/api/v1/health", "/api/v1/auth/status", "/api/v1/auth/setup", "/api/v1/auth/login":
+	case "/api/v1/health", "/api/v1/auth/status", "/api/v1/auth/bootstrap", "/api/v1/auth/setup", "/api/v1/auth/login":
 		return true
 	default:
 		return false
 	}
+}
+
+func setSetupAuthorizationCookie(writer http.ResponseWriter, bootstrapToken string, secure bool) {
+	now := time.Now()
+	expiresAt := now.Add(setupAuthorizationTTL)
+	http.SetCookie(writer, &http.Cookie{
+		Name:     setupAuthorizationCookieName,
+		Value:    newSetupAuthorization(bootstrapToken, expiresAt),
+		Path:     "/api/v1/auth",
+		Expires:  expiresAt,
+		MaxAge:   int(setupAuthorizationTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteStrictMode,
+	})
+}
+
+func clearSetupAuthorizationCookie(writer http.ResponseWriter, secure bool) {
+	http.SetCookie(writer, &http.Cookie{
+		Name:     setupAuthorizationCookieName,
+		Value:    "",
+		Path:     "/api/v1/auth",
+		Expires:  time.Unix(1, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteStrictMode,
+	})
+}
+
+func newSetupAuthorization(bootstrapToken string, expiresAt time.Time) string {
+	expires := strconv.FormatInt(expiresAt.Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(bootstrapToken))
+	_, _ = mac.Write([]byte("kdae-panel-setup:" + expires))
+	return expires + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func validSetupAuthorization(request *http.Request, bootstrapToken string, now time.Time) bool {
+	if bootstrapToken == "" {
+		return true
+	}
+	cookie, err := request.Cookie(setupAuthorizationCookieName)
+	if err != nil {
+		return false
+	}
+	parts := strings.SplitN(cookie.Value, ".", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	expiresAt, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || expiresAt <= now.Unix() {
+		return false
+	}
+	expected := newSetupAuthorization(bootstrapToken, time.Unix(expiresAt, 0))
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(expected)) == 1
 }
 
 func optionalSession(request *http.Request, service AuthenticationService) (auth.Session, bool) {

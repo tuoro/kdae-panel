@@ -30,7 +30,7 @@
 ## 部署要求
 
 - 默认保持 `127.0.0.1` 监听；
-- 首次初始化必须提交服务启动日志中的随机 bootstrap token；
+- 首次初始化必须通过服务启动日志中的一次性链接兑换短时 HttpOnly 授权 Cookie；
 - 远程访问必须使用 HTTPS 反向代理或 SSH 隧道；
 - HTTPS 部署必须设置 `KDAE_PANEL_SECURE_COOKIE=true`；
 - 反向代理必须保留原始 Host；
