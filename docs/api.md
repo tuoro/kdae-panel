@@ -211,7 +211,7 @@ dae 只在重载时重新拉取 `subscription` 链接，因此"订阅定时刷�
 
 重载应用的是磁盘上的当前配置，所以之前用 `apply: false` 保存但未应用的改动会随这次刷新一并生效。
 
-订阅内容本身的缓存由 dae 负责：把链接的 scheme 写成带 `-file` 后缀的形式（如 `https-file://`），dae 会将拉取成功的内容保存到 `config_dir/persist.d/<tag>.sub`，并在后续拉取失败时回退使用。面板不自行下载或缓存订阅内容，只读解析这些缓存供分组成员选择。
+普通订阅的缓存由 dae 负责：把链接的 scheme 写成带 `-file` 后缀的形式（如 `https-file://`），dae 会将拉取成功的内容保存到 `config_dir/persist.d/<tag>.sub`，并在后续拉取失败时回退使用。需要指定 User-Agent 的托管订阅由面板下载到 `config_dir/managed.d`；Base64、URI、SIP008 内容直接兼容，Clash/Mihomo YAML 会先转换成 dae 可读取的 Base64 URI 列表。刷新或转换失败时保留上一份有效缓存。
 
 `GET /subscriptions/nodes` 返回现有缓存中的订阅来源和带稳定名称的节点。每个节点只包含 `name`、`protocol`、`host` 与同名匹配数 `matches`，不会返回分享链接、密码或 UUID。缓存缺失时该来源不出现在结果中；单个缓存损坏、超限或不是普通文件时，来源带 `problem`，不会影响其他缓存。单文件上限 8 MiB、来源上限 128 个、节点名称上限 4096 个。
 

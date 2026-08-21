@@ -258,14 +258,14 @@ func (m *Manager) download(ctx context.Context, definition Definition) ([]byte, 
 	if len(content) > maxBodyBytes {
 		return nil, fmt.Errorf("订阅响应超过 %d MiB 上限", maxBodyBytes>>20)
 	}
-	count, skipped, err := subscriptioncache.Validate(content)
+	normalized, count, skipped, err := subscriptioncache.Normalize(content)
 	if err != nil {
 		return nil, fmt.Errorf("订阅内容无法被 dae 识别: %w", err)
 	}
 	if m.logger != nil {
 		m.logger.Info("托管订阅下载完成", "tag", definition.Tag, "nodes", count, "skipped", skipped)
 	}
-	return content, nil
+	return normalized, nil
 }
 
 func (m *Manager) saveLocked() error {

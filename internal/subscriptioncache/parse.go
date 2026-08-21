@@ -12,17 +12,71 @@ import (
 
 const maxNodes = 4096
 
-// Validate 确认内容至少包含一个 dae 可消费的 SIP008 或 Base64 节点。
-// 面板托管订阅在替换旧缓存前调用它，避免机场错误页被当作成功结果落盘。
-func Validate(content []byte) (nodes int, skipped int, err error) {
-	parsed, skipped, err := parseSubscription(content)
-	if err != nil {
-		return 0, skipped, err
+// Normalize 将上游订阅转换成 dae 能直接读取的缓存格式。已经兼容的
+// SIP008/Base64 订阅保持原样；普通 URI 列表和 Clash/Mihomo YAML 会被
+// 转换成标准 Base64 URI 列表。节点预览随后读取同一份结果。
+func Normalize(content []byte) (normalized []byte, nodes int, skipped int, err error) {
+	parsed, skipped, parseErr := parseSubscription(content)
+	if parseErr == nil && len(parsed) > 0 {
+		if len(content) > maxFileBytes {
+			return nil, 0, skipped, errors.New("订阅缓存超过 8 MiB 上限")
+		}
+		return content, len(parsed), skipped, nil
 	}
-	if len(parsed) == 0 {
-		return 0, skipped, errors.New("订阅中没有可识别节点")
+
+	if links := parsePlainLinks(content); len(links) > 0 {
+		return encodeLinks(links)
 	}
-	return len(parsed), skipped, nil
+
+	links, unsupported, clashErr := parseClashSubscription(content)
+	if clashErr != nil {
+		return nil, 0, 0, clashErr
+	}
+	if len(links) == 0 {
+		return nil, 0, unsupported, errors.New("订阅中没有可转换的节点")
+	}
+	normalized, nodes, invalid, err := encodeLinks(links)
+	return normalized, nodes, unsupported + invalid, err
+}
+
+func parsePlainLinks(content []byte) []string {
+	lines := strings.Split(string(content), "\n")
+	links := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" {
+			continue
+		}
+		if _, ok := parseNodeLink(line); !ok {
+			return nil
+		}
+		links = append(links, line)
+	}
+	return links
+}
+
+func encodeLinks(links []string) ([]byte, int, int, error) {
+	valid := make([]string, 0, len(links))
+	skipped := 0
+	for _, link := range links {
+		if _, ok := parseNodeLink(link); !ok {
+			skipped++
+			continue
+		}
+		valid = append(valid, link)
+		if len(valid) > maxNodes {
+			return nil, 0, skipped, errors.New("订阅节点数量超过 4096 个上限")
+		}
+	}
+	if len(valid) == 0 {
+		return nil, 0, skipped, errors.New("订阅中没有可识别节点")
+	}
+	payload := strings.Join(valid, "\n") + "\n"
+	encoded := base64.StdEncoding.EncodeToString([]byte(payload))
+	if len(encoded) > maxFileBytes {
+		return nil, 0, skipped, errors.New("标准化后的订阅缓存超过 8 MiB 上限")
+	}
+	return []byte(encoded), len(valid), skipped, nil
 }
 
 type sip008 struct {

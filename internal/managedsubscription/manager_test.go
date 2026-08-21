@@ -145,3 +145,42 @@ func TestPrepareRejectsUnrecognizedContentAndDoesNotExposeURL(t *testing.T) {
 		t.Fatalf("network error exposed subscription URL: %v", err)
 	}
 }
+
+func TestPrepareNormalizesClashResponseSelectedByUserAgent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("User-Agent") != "Clash Verge" {
+			http.Error(writer, "unsupported client", http.StatusForbidden)
+			return
+		}
+		_, _ = writer.Write([]byte(`proxies:
+  - name: provider-node
+    type: trojan
+    server: node.example.com
+    port: 443
+    password: secret
+    sni: edge.example.com
+`))
+	}))
+	defer server.Close()
+
+	directory := t.TempDir()
+	manager, err := Open(filepath.Join(directory, "state.json"), filepath.Join(directory, "config.dae"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := manager.Prepare(context.Background(), Definition{
+		Tag: "provider", URL: server.URL, UserAgent: "Clash Verge",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "managed.d", strings.TrimPrefix(prepared.LocalURL, "file://managed.d/"))
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(string(content))
+	if err != nil || !strings.Contains(string(decoded), "trojan://") || !strings.Contains(string(decoded), "#provider-node") {
+		t.Fatalf("缓存未标准化: content=%q err=%v", content, err)
+	}
+}
