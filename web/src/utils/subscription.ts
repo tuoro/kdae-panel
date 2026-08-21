@@ -3,6 +3,7 @@
 // 参见上游 example.dae 的 subscription 节。
 
 const PERSIST_SUFFIX = '-file'
+const MANAGED_CACHE_PREFIX = 'file://managed.d/'
 
 export interface SubscriptionScheme {
   /** 原文中的 scheme,大小写保持不变。 */
@@ -31,6 +32,13 @@ export function supportsPersistence(link: string): boolean {
   const parsed = parseScheme(link)
   if (parsed === null || parsed.local) return false
   return !parsed.base.endsWith(PERSIST_SUFFIX)
+}
+
+/** 分组节点预览只读取已经落盘的缓存，包括 dae 持久化缓存与面板托管缓存。 */
+export function hasReadableCache(link: string): boolean {
+  const trimmed = link.trim()
+  return parseScheme(trimmed)?.persistent === true
+    || trimmed.toLowerCase().startsWith(MANAGED_CACHE_PREFIX)
 }
 
 /** 在 `https://` 与 `https-file://` 之间切换,scheme 大小写与链接其余部分原样保留。 */

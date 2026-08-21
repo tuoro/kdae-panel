@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseScheme, supportsPersistence, togglePersistence } from './subscription'
+import { hasReadableCache, parseScheme, supportsPersistence, togglePersistence } from './subscription'
 
 describe('parseScheme', () => {
   it('识别持久化后缀与本地订阅', () => {
@@ -21,6 +21,18 @@ describe('supportsPersistence', () => {
     expect(supportsPersistence('file://relative/mysub.sub')).toBe(false)
     expect(supportsPersistence('file-file://x')).toBe(false)
     expect(supportsPersistence('随便写的')).toBe(false)
+  })
+})
+
+describe('hasReadableCache', () => {
+  it('接受 dae 持久化订阅和面板托管订阅', () => {
+    expect(hasReadableCache('https-file://example.com/sub')).toBe(true)
+    expect(hasReadableCache('file://managed.d/main-0123456789abcdef.sub')).toBe(true)
+  })
+
+  it('不把普通远程订阅或任意本地文件当作可预览缓存', () => {
+    expect(hasReadableCache('https://example.com/sub')).toBe(false)
+    expect(hasReadableCache('file://custom/subscription.txt')).toBe(false)
   })
 })
 

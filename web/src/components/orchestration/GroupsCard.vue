@@ -44,7 +44,7 @@ import {
   type GroupFilterKind,
 } from '../../utils/group'
 import { parseNodeLink } from '../../utils/nodelink'
-import { parseScheme } from '../../utils/subscription'
+import { hasReadableCache } from '../../utils/subscription'
 import SectionEditorModal from './SectionEditorModal.vue'
 
 const content = defineModel<string>({ required: true })
@@ -142,14 +142,14 @@ const subscriptionNodeSources = ref<SubscriptionNodeSource[]>([])
 const subscriptionNodesLoading = ref(false)
 const subscriptionNodesLoaded = ref(false)
 const subscriptionNodesError = ref('')
-const persistentSubscriptionTags = computed(() => new Set(
+const cachedSubscriptionTags = computed(() => new Set(
   readSection(content.value, 'subscription').entries
-    .filter((entry) => entry.tag && parseScheme(entry.value)?.persistent)
+    .filter((entry) => entry.tag && hasReadableCache(entry.value))
     .map((entry) => entry.tag!),
 ))
 const subscriptionNodeSourceMap = computed(() => new Map(
   subscriptionNodeSources.value
-    .filter((source) => persistentSubscriptionTags.value.has(source.tag))
+    .filter((source) => cachedSubscriptionTags.value.has(source.tag))
     .map((source) => [source.tag, source]),
 ))
 const fixedSources = computed(() => [...subscriptionNodeSourceMap.value.values()])
