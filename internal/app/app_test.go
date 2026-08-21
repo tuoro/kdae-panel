@@ -1419,6 +1419,13 @@ func (s *stubPanelUpdateService) SetEnabled(enabled bool) error {
 	return nil
 }
 
+func (s *stubPanelUpdateService) SetChannel(channel string) error {
+	s.mu.Lock()
+	s.status.Channel = channel
+	s.mu.Unlock()
+	return nil
+}
+
 func (s *stubPanelUpdateService) Download(_ context.Context, version string) (upstream.PanelBinary, error) {
 	s.mu.Lock()
 	s.requested = version
@@ -1471,6 +1478,45 @@ func TestPanelSelfUpdatePreferenceCanBeChangedFromAPI(t *testing.T) {
 		"/api/v1/panel/update", strings.NewReader(`{"version":"v0.2.0"}`)))
 	if upgrade.Code != http.StatusAccepted {
 		t.Fatalf("界面开启后应能升级: %d %s", upgrade.Code, upgrade.Body.String())
+	}
+}
+
+func TestPanelUpdateChannelSwitchesCheckerAndInvalidatesCache(t *testing.T) {
+	service := &stubPanelUpdateService{status: panelupdate.Status{
+		Enabled: true, Updatable: true, Channel: panelupdate.ChannelStable,
+	}}
+	var previewCalls atomic.Int64
+	application, err := NewWithDependencies(
+		Config{Version: "v1.0.0"},
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Dependencies{
+			Dae:         stubDaeService{},
+			PanelUpdate: service,
+			PanelRelease: func(_ context.Context, preview bool) (string, error) {
+				if preview {
+					previewCalls.Add(1)
+					return "v1.1.0-rc.1", nil
+				}
+				return "v1.0.0", nil
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stable := fetchPanelUpdate(t, application); stable["latest"] != "v1.0.0" {
+		t.Fatalf("稳定通道检查 = %v", stable)
+	}
+
+	preference := httptest.NewRecorder()
+	application.Handler().ServeHTTP(preference, httptest.NewRequest(http.MethodPut,
+		"/api/v1/panel/update/preference", strings.NewReader(`{"channel":"preview"}`)))
+	if preference.Code != http.StatusOK || !strings.Contains(preference.Body.String(), `"channel":"preview"`) {
+		t.Fatalf("切换预发布通道响应 = %d %s", preference.Code, preference.Body.String())
+	}
+	preview := fetchPanelUpdate(t, application)
+	if preview["latest"] != "v1.1.0-rc.1" || preview["updateAvailable"] != true || previewCalls.Load() != 1 {
+		t.Fatalf("预发布通道检查 = %v，调用次数 = %d", preview, previewCalls.Load())
 	}
 }
 
@@ -1568,7 +1614,7 @@ func TestPanelSelfUpdateRejectsMalformedVersion(t *testing.T) {
 // 新版本检查：结果必须缓存，dev 构建不联网也不提示。
 func TestPanelUpdateCheck(t *testing.T) {
 	var calls atomic.Int64
-	application := newUpdateCheckApp(t, "v0.1.2", func(context.Context) (string, error) {
+	application := newUpdateCheckApp(t, "v0.1.2", func(context.Context, bool) (string, error) {
 		calls.Add(1)
 		return "v0.2.0", nil
 	})
@@ -1586,7 +1632,7 @@ func TestPanelUpdateCheck(t *testing.T) {
 
 func TestPanelUpdateManualCheckBypassesCache(t *testing.T) {
 	var calls atomic.Int64
-	application := newUpdateCheckApp(t, "v0.1.2", func(context.Context) (string, error) {
+	application := newUpdateCheckApp(t, "v0.1.2", func(context.Context, bool) (string, error) {
 		if calls.Add(1) == 1 {
 			return "v0.2.0", nil
 		}
@@ -1609,7 +1655,7 @@ func TestPanelUpdateManualCheckBypassesCache(t *testing.T) {
 
 func TestPanelUpdateCheckSkipsDevBuild(t *testing.T) {
 	var calls atomic.Int64
-	application := newUpdateCheckApp(t, "dev", func(context.Context) (string, error) {
+	application := newUpdateCheckApp(t, "dev", func(context.Context, bool) (string, error) {
 		calls.Add(1)
 		return "v9.9.9", nil
 	})
@@ -1624,7 +1670,7 @@ func TestPanelUpdateCheckSkipsDevBuild(t *testing.T) {
 
 // 检查失败要如实带出错误并短缓存，而不是假装没有新版本还长期缓存失败。
 func TestPanelUpdateCheckReportsError(t *testing.T) {
-	application := newUpdateCheckApp(t, "v0.1.2", func(context.Context) (string, error) {
+	application := newUpdateCheckApp(t, "v0.1.2", func(context.Context, bool) (string, error) {
 		return "", errors.New("上游不可达")
 	})
 	payload := fetchPanelUpdate(t, application)
@@ -1643,6 +1689,8 @@ func TestVersionBehind(t *testing.T) {
 		{"v0.2.0", "v0.1.9", false},
 		{"v0.9.9", "v1.0.0", true},
 		{"v1.0.0-rc.1", "v1.0.0", true},
+		{"v1.0.0-rc.1", "v1.0.0-rc.2", true},
+		{"v1.0.0-rc.2", "v1.0.0-rc.1", false},
 		{"v1.0.0", "v1.0.0-rc.1", false},
 		{"dev", "v1.0.0", false},
 		{"v0.1.2", "not-a-version", false},

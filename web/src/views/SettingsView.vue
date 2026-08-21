@@ -10,6 +10,7 @@ import {
   NGridItem,
   NIcon,
   NInput,
+  NSelect,
   NSpace,
   NSwitch,
   NTag,
@@ -35,6 +36,9 @@ const dumpLoading = ref(false)
 const updateLoading = ref(true)
 const updateChecking = ref(false)
 const updateSaving = ref(false)
+const updateChannelVisible = ref(false)
+let updateChannelClicks = 0
+let updateChannelClickTimer: ReturnType<typeof setTimeout> | undefined
 const panelUpdate = ref<PanelUpdatePayload | null>(null)
 const updateError = ref('')
 const githubStatus = ref<GitHubCredentialStatus | null>(null)
@@ -133,6 +137,36 @@ async function setSelfUpdate(enabled: boolean) {
   } catch (error) {
     if (panelUpdate.value?.status && previous !== undefined) panelUpdate.value.status.enabled = previous
     message.error(error instanceof Error ? error.message : '保存面板更新设置失败')
+  } finally {
+    updateSaving.value = false
+  }
+}
+
+function revealUpdateChannel() {
+  if (updateChannelVisible.value) return
+  updateChannelClicks++
+  clearTimeout(updateChannelClickTimer)
+  updateChannelClickTimer = setTimeout(() => { updateChannelClicks = 0 }, 3000)
+  if (updateChannelClicks < 5) return
+  updateChannelVisible.value = true
+  updateChannelClicks = 0
+  message.info('已显示测试更新通道')
+}
+
+async function setUpdateChannel(channel: 'stable' | 'preview') {
+  if (!panelUpdate.value?.status || panelUpdate.value.status.channel === channel) return
+  const previous = panelUpdate.value.status.channel
+  panelUpdate.value.status.channel = channel
+  updateSaving.value = true
+  try {
+    const payload = await putJSON<{ status: PanelUpdateStatus }>('/api/v1/panel/update/preference', { channel })
+    panelUpdate.value.status = payload.status
+    window.dispatchEvent(new CustomEvent('kdae-panel:self-update-changed', { detail: payload.status }))
+    message.success(channel === 'preview' ? '已切换到预发布通道' : '已切换到稳定通道')
+    await checkPanelUpdate()
+  } catch (error) {
+    if (panelUpdate.value?.status) panelUpdate.value.status.channel = previous
+    message.error(error instanceof Error ? error.message : '保存面板更新通道失败')
   } finally {
     updateSaving.value = false
   }
@@ -325,6 +359,27 @@ onMounted(() => {
           />
         </div>
 
+        <div
+          v-if="updateChannelVisible || panelUpdate?.status?.channel === 'preview'"
+          class="settings-toggle-row settings-update-channel"
+        >
+          <div>
+            <strong>更新通道</strong>
+            <NText depth="3">预发布通道用于测试候选版本，可能包含尚未验证完成的功能。</NText>
+          </div>
+          <NSelect
+            :value="panelUpdate?.status?.channel || 'stable'"
+            :options="[
+              { label: '稳定版', value: 'stable' },
+              { label: '预发布版（测试）', value: 'preview' },
+            ]"
+            :loading="updateSaving"
+            :disabled="updateLoading || updateSaving || !panelUpdate?.status"
+            aria-label="面板更新通道"
+            @update:value="setUpdateChannel"
+          />
+        </div>
+
         <div class="settings-update-actions">
           <div class="settings-update-action-copy">
             <strong v-if="updateLoading">正在读取版本信息</strong>
@@ -353,7 +408,7 @@ onMounted(() => {
         </div>
 
         <dl v-if="panelUpdate" class="details-list settings-update-details">
-          <div><dt>当前版本</dt><dd class="mono">{{ panelUpdate.check.current }}</dd></div>
+          <div><dt>当前版本</dt><dd class="mono" @click="revealUpdateChannel">{{ panelUpdate.check.current }}</dd></div>
           <div><dt>最新版本</dt><dd class="mono">{{ panelUpdate.check.latest || '暂未取得' }}</dd></div>
           <div><dt>运行平台</dt><dd class="mono">{{ panelUpdate.status?.platform || '—' }}</dd></div>
           <div><dt>上一版副本</dt><dd class="mono">{{ panelUpdate.status?.previousPath || '尚未生成' }}</dd></div>

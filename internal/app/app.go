@@ -211,7 +211,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	dependencies.PanelUpdate = updater
 	if !cfg.DisableUpdateCheck {
-		dependencies.PanelRelease = panelFetcher.LatestVersion
+		dependencies.PanelRelease = func(ctx context.Context, preview bool) (string, error) {
+			if preview {
+				return panelFetcher.LatestPreviewVersion(ctx)
+			}
+			return panelFetcher.LatestVersion(ctx)
+		}
 	}
 	application, err := NewWithDependencies(cfg, logger, dependencies)
 	if err != nil {
@@ -317,7 +322,10 @@ func NewWithDependencies(cfg Config, logger *slog.Logger, dependencies Dependenc
 	})
 	panelRelease := dependencies.PanelRelease
 	if panelRelease == nil && !cfg.DisableUpdateCheck {
-		panelRelease = func(ctx context.Context) (string, error) {
+		panelRelease = func(ctx context.Context, preview bool) (string, error) {
+			if preview {
+				return upstream.LatestPanelPreviewRelease(ctx, upstream.PanelRepoOwner, upstream.PanelRepoName)
+			}
 			return upstream.LatestPanelRelease(ctx, upstream.PanelRepoOwner, upstream.PanelRepoName)
 		}
 	}

@@ -4,9 +4,32 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestLatestPanelPreviewReleaseSkipsDraft(t *testing.T) {
+	client := testHTTPClient(roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Query().Get("per_page") != "20" {
+			t.Fatalf("缺少发布列表页大小: %s", request.URL.String())
+		}
+		return jsonResponse(http.StatusOK, `[
+          {"tag_name":"v9.0.0-secret","draft":true},
+          {"tag_name":"v1.1.0-rc.2","draft":false},
+          {"tag_name":"v1.0.0","draft":false}
+        ]`, nil), nil
+	}), time.Now)
+	tag, err := latestPanelPreviewRelease(context.Background(), client, "owner", "repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag != "v1.1.0-rc.2" {
+		t.Fatalf("预发布通道版本 = %q", tag)
+	}
+}
 
 func tarball(t *testing.T, entries []tar.Header, contents [][]byte) []byte {
 	t.Helper()

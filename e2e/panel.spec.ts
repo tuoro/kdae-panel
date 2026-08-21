@@ -436,6 +436,22 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(groupItem).toContainText('订阅 e2e_sub：SUB-HK')
     await expect(groupItem).toContainText('订阅：e2e_sub')
 
+    await page.setViewportSize({ width: 390, height: 844 })
+    await groupItem.getByRole('button', { name: '编辑', exact: true }).click()
+    const mobileGroupModal = page.getByTestId('group-editor-modal')
+    const mobileNodePicker = mobileGroupModal.getByTestId('group-node-picker-mobile')
+    await expect(mobileNodePicker).toHaveText('已选择 1 个节点')
+    await mobileNodePicker.click()
+    const mobileNodeDrawer = page.locator('.mobile-node-picker-drawer')
+    await expect(mobileNodeDrawer).toBeVisible()
+    await mobileNodeDrawer.getByPlaceholder('搜索节点名称、协议或地址').fill('E2E')
+    await expect(mobileNodeDrawer.locator('.mobile-node-picker-option')).toHaveCount(1)
+    await expect(mobileNodeDrawer).toContainText('E2E-01')
+    expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(390)
+    await mobileNodeDrawer.getByRole('button', { name: '完成' }).click()
+    await mobileGroupModal.getByRole('button', { name: '取消' }).click()
+    await page.setViewportSize({ width: 1600, height: 900 })
+
     const routing = page.getByTestId('routing-card')
     await routing.getByRole('button', { name: '添加规则' }).click()
     const ruleModal = page.getByTestId('routing-rule-modal')
@@ -653,6 +669,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
   await test.step('设置页左右列保持同一底边', async () => {
     const targetPanelVersion = 'v1.0.0'
     let upgradeStarted = false
+    let updateChannel: 'stable' | 'preview' = 'stable'
     await page.route('**/api/v1/panel/update/check', (route) => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -668,10 +685,30 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
           platform: 'linux/amd64',
           enabled: true,
           updatable: true,
+          channel: updateChannel,
         },
         job: { phase: 'idle' },
       }),
     }))
+    await page.route('**/api/v1/panel/update/preference', async (route) => {
+      if (route.request().method() !== 'PUT') return route.continue()
+      const body = route.request().postDataJSON() as { channel?: 'stable' | 'preview'; enabled?: boolean }
+      if (!body.channel) return route.continue()
+      updateChannel = body.channel
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: {
+            current: 'v0.9.6',
+            binaryPath: '/usr/bin/kdae-panel',
+            platform: 'linux/amd64',
+            enabled: true,
+            updatable: true,
+            channel: updateChannel,
+          },
+        }),
+      })
+    })
     await page.route('**/api/v1/panel/update', async (route) => {
       if (route.request().method() !== 'POST') return route.continue()
       upgradeStarted = true
@@ -710,6 +747,17 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
 
     const upgradeButton = page.getByTestId('panel-upgrade')
     await expect(upgradeButton).toHaveText(`升级到 ${targetPanelVersion}`)
+
+    const currentVersion = page.locator('.settings-update-details dd').filter({ hasText: 'v0.9.6' })
+    for (let index = 0; index < 5; index++) await currentVersion.click()
+    const channelPicker = page.getByLabel('面板更新通道')
+    await expect(channelPicker).toBeVisible()
+    await channelPicker.locator('.n-base-selection').click()
+    await clickVisibleOption(page, '预发布版（测试）')
+    await expect(channelPicker).toContainText('预发布版（测试）')
+    await channelPicker.locator('.n-base-selection').click()
+    await clickVisibleOption(page, '稳定版')
+    await expect(channelPicker).toContainText('稳定版')
     await capture(page, 'settings.png', 1600, 1250)
 
     await page.setViewportSize({ width: 390, height: 844 })
@@ -733,6 +781,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await restarted
     await page.unroute('**/api/v1/panel/update/check')
     await page.unroute('**/api/v1/panel/update')
+    await page.unroute('**/api/v1/panel/update/preference')
     await page.unroute('**/api/v1/health')
     await expect(page.getByRole('heading', { name: '面板设置', level: 2 })).toBeVisible()
 

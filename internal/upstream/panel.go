@@ -33,6 +33,13 @@ func LatestPanelRelease(ctx context.Context, owner, repo string) (string, error)
 	return latestPanelRelease(ctx, newHTTPClient(), owner, repo)
 }
 
+// LatestPanelPreviewRelease 查询最近发布的非草稿版本，包含 prerelease。
+// GitHub 的 releases 列表按创建时间倒序；预发布通道因此跟随发布者刚发布的测试版，
+// 正式版发布后也会自然回到更新的正式版。
+func LatestPanelPreviewRelease(ctx context.Context, owner, repo string) (string, error) {
+	return latestPanelPreviewRelease(ctx, newHTTPClient(), owner, repo)
+}
+
 func latestPanelRelease(ctx context.Context, client *httpClient, owner, repo string) (string, error) {
 	var release struct {
 		TagName string `json:"tag_name"`
@@ -45,6 +52,23 @@ func latestPanelRelease(ctx context.Context, client *httpClient, owner, repo str
 		return "", errors.New("上游响应缺少 tag_name")
 	}
 	return release.TagName, nil
+}
+
+func latestPanelPreviewRelease(ctx context.Context, client *httpClient, owner, repo string) (string, error) {
+	var releases []struct {
+		TagName string `json:"tag_name"`
+		Draft   bool   `json:"draft"`
+	}
+	target := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases?per_page=20", owner, repo)
+	if err := client.getJSON(ctx, target, &releases); err != nil {
+		return "", err
+	}
+	for _, release := range releases {
+		if !release.Draft && release.TagName != "" {
+			return release.TagName, nil
+		}
+	}
+	return "", errors.New("上游响应中没有可用的非草稿 Release")
 }
 
 // PanelFetcher 是面板自升级用的默认上游实现，固定指向本仓库。
@@ -68,6 +92,10 @@ func NewPanelFetcherWithGitHubToken(source GitHubTokenSource) *PanelFetcher {
 
 func (f *PanelFetcher) LatestVersion(ctx context.Context) (string, error) {
 	return latestPanelRelease(ctx, f.client, f.owner, f.repo)
+}
+
+func (f *PanelFetcher) LatestPreviewVersion(ctx context.Context) (string, error) {
+	return latestPanelPreviewRelease(ctx, f.client, f.owner, f.repo)
 }
 
 func (f *PanelFetcher) Binary(ctx context.Context, version string) (PanelBinary, error) {

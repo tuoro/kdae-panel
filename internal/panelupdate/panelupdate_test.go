@@ -112,7 +112,10 @@ func TestPreferencePersistsAcrossManagerRestart(t *testing.T) {
 	if err := manager.SetEnabled(false); err != nil {
 		t.Fatal(err)
 	}
-	if status := manager.Status(context.Background()); status.Enabled || status.Updatable || status.PreviousPath != manager.backupPath {
+	if err := manager.SetChannel(ChannelPreview); err != nil {
+		t.Fatal(err)
+	}
+	if status := manager.Status(context.Background()); status.Enabled || status.Updatable || status.PreviousPath != manager.backupPath || status.Channel != ChannelPreview {
 		t.Fatalf("关闭后的状态 = %+v", status)
 	}
 
@@ -129,13 +132,13 @@ func TestPreferencePersistsAcrossManagerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status := reloaded.Status(context.Background()); status.Enabled || status.Updatable || status.PreviousPath != manager.backupPath {
+	if status := reloaded.Status(context.Background()); status.Enabled || status.Updatable || status.PreviousPath != manager.backupPath || status.Channel != ChannelPreview {
 		t.Fatalf("重启后没有保持关闭状态: %+v", status)
 	}
 	if err := reloaded.SetEnabled(true); err != nil {
 		t.Fatal(err)
 	}
-	if status := reloaded.Status(context.Background()); !status.Enabled || !status.Updatable {
+	if status := reloaded.Status(context.Background()); !status.Enabled || !status.Updatable || status.Channel != ChannelPreview {
 		t.Fatalf("重新开启后的状态 = %+v", status)
 	}
 }

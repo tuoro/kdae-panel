@@ -1,1 +1,0 @@
-import{Tn as e}from"./client-7ydMUZih.js";function t(){return e()!==null}var n=typeof window<`u`;export{n,t};

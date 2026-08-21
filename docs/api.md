@@ -221,7 +221,7 @@ dae 只在重载时重新拉取 `subscription` 链接，因此"订阅定时刷�
 |---|---|---|
 | `GET` | `/panel/update` | 新版本检查结果与自升级状态 |
 | `POST` | `/panel/update/check` | 立即绕过缓存检查面板新版本 |
-| `PUT` | `/panel/update/preference` | 在 UI 中持久化一键升级开关 |
+| `PUT` | `/panel/update/preference` | 在 UI 中持久化一键升级开关与更新通道 |
 | `POST` | `/panel/update` | 触发一键自升级 |
 
 `GET` 响应里的 `check` 含 `current`、`latest`、`updateAvailable`、`checkedAt`，检查失败时带 `error`；
@@ -229,11 +229,13 @@ dae 只在重载时重新拉取 `subscription` 链接，因此"订阅定时刷�
 `KDAE_PANEL_DISABLE_UPDATE_CHECK=true` 时不再联网、恒不提示。
 手动检查接口返回同样的 `check`、`status` 与 `job` 结构，会绕过成功缓存；同一面板在 1 分钟冷却期内重复调用直接返回上次结果。
 
-正式部署的响应始终带 `status`（`enabled`、是否可升级、二进制路径、上一版副本位置）
-与 `job`（任务进度）。`PUT /panel/update/preference` 接受 `{"enabled":true|false}`，
+正式部署的响应始终带 `status`（`enabled`、`channel`、是否可升级、二进制路径、上一版副本位置）
+与 `job`（任务进度）。`PUT /panel/update/preference` 接受 `{"enabled":true|false}` 或
+`{"channel":"stable"|"preview"}`，
 原子保存到面板数据目录并返回新状态；关闭时 `POST` 返回 `409 panel_self_update_disabled`。
 
-`POST` 可选 `{"version":"v0.2.0"}`，省略则取最新正式发布；立即返回 `202` 并在后台执行：
+`stable` 只检查正式发布；`preview` 检查最近的非草稿 Release，包含 prerelease。
+`POST` 可选 `{"version":"v0.2.0"}`，省略则取当前通道检查出的最新版；立即返回 `202` 并在后台执行：
 下载 → 比对 `SHA256SUMS` → 新二进制 `-version` 自证 → 备份上一版 → 原子替换 →
 `systemctl restart --no-block` 重启自身。下载、校验、自证或备份失败时原文件不动；
 原子改名后的目录同步或重启请求失败则可能已经留下新二进制，任务会明确报错并要求人工确认或重启。

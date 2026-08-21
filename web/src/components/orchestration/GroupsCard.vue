@@ -20,6 +20,7 @@ import {
 } from 'naive-ui'
 import { AddOutline, CreateOutline, TrashOutline } from '@vicons/ionicons5'
 import { getJSON } from '../../api/client'
+import { useMobileViewport } from '../../composables/useMobileViewport'
 import type { SubscriptionNodeSource } from '../../types/api'
 import {
   addGroup,
@@ -45,10 +46,12 @@ import {
 } from '../../utils/group'
 import { parseNodeLink } from '../../utils/nodelink'
 import { hasReadableCache } from '../../utils/subscription'
+import MobileNodePicker from './MobileNodePicker.vue'
 import SectionEditorModal from './SectionEditorModal.vue'
 
 const content = defineModel<string>({ required: true })
 const message = useMessage()
+const mobile = useMobileViewport()
 
 const groups = computed<Group[]>(() => parseGroups(content.value))
 const groupNames = computed(() => new Set(groups.value.map((group) => group.name)))
@@ -536,15 +539,23 @@ function applyGroupEdit() {
       <NText v-if="groupFilters.length === 0" depth="3">不设置过滤时，该分组包含全部节点。</NText>
       <div v-for="(filter, index) in groupFilters" :key="index" class="group-filter-editor-row">
         <NSelect v-model:value="filter.kind" :options="FILTER_KIND_OPTIONS" />
+        <MobileNodePicker
+          v-if="filter.kind === 'nodes' && mobile"
+          v-model="filter.values"
+          :options="nodeOptions"
+          title="选择本地节点"
+          placeholder="选择本地节点"
+          data-testid="group-node-picker-mobile"
+        />
         <NSelect
-          v-if="filter.kind === 'nodes'"
+          v-else-if="filter.kind === 'nodes'"
           v-model:value="filter.values"
           :options="nodeOptions"
           :render-label="renderResourceLabel"
           multiple
           filterable
           clearable
-          max-tag-count="responsive"
+          :max-tag-count="3"
           :virtual-scroll="false"
           :consistent-menu-width="false"
           placeholder="选择本地节点"
@@ -561,7 +572,17 @@ function applyGroupEdit() {
             data-testid="group-subscription-node-source"
             @update:value="(value: string | null) => changeSubscriptionNodeSource(filter, value || '')"
           />
+          <MobileNodePicker
+            v-if="mobile"
+            v-model="filter.values"
+            :options="subscriptionNodeOptions(filter.source)"
+            :disabled="filter.source === '' || subscriptionNodeOptions(filter.source).length === 0"
+            :title="filter.source ? `选择 ${filter.source} 中的节点` : '选择订阅节点'"
+            placeholder="选择该订阅中的节点"
+            data-testid="group-subscription-node-picker-mobile"
+          />
           <NSelect
+            v-else
             v-model:value="filter.values"
             :options="subscriptionNodeOptions(filter.source)"
             :render-label="renderResourceLabel"
@@ -569,7 +590,7 @@ function applyGroupEdit() {
             multiple
             filterable
             clearable
-            max-tag-count="responsive"
+            :max-tag-count="3"
             :virtual-scroll="false"
             :consistent-menu-width="false"
             placeholder="选择该订阅中的节点"
@@ -588,7 +609,7 @@ function applyGroupEdit() {
           filterable
           tag
           clearable
-          max-tag-count="responsive"
+          :max-tag-count="3"
           :virtual-scroll="false"
           :consistent-menu-width="false"
           placeholder="选择订阅"

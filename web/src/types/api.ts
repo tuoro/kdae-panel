@@ -296,6 +296,7 @@ export interface PanelUpdateStatus {
   binaryPath: string
   platform: string
   enabled: boolean
+  channel: 'stable' | 'preview'
   updatable: boolean
   problem?: string
   previousPath?: string

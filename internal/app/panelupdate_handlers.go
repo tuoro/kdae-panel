@@ -13,8 +13,8 @@ import (
 	"github.com/tuoro/kdae-panel/internal/upstream"
 )
 
-// PanelReleaseChecker 查询面板自身的最新发布 tag。
-type PanelReleaseChecker func(ctx context.Context) (string, error)
+// PanelReleaseChecker 按更新通道查询面板自身的最新发布 tag。
+type PanelReleaseChecker func(ctx context.Context, preview bool) (string, error)
 
 // PanelUpdateService 是面板自升级能力的消费者侧接口。
 type PanelUpdateService interface {
@@ -29,7 +29,8 @@ type panelUpdateRequest struct {
 }
 
 type panelUpdatePreferenceRequest struct {
-	Enabled *bool `json:"enabled"`
+	Enabled *bool   `json:"enabled"`
+	Channel *string `json:"channel"`
 }
 
 type panelUpdate struct {
@@ -79,8 +80,9 @@ func registerPanelUpdateRoutes(router *http.ServeMux, current string, checker Pa
 		result := panelUpdate{Current: current, CheckedAt: now.UTC()}
 		ttl := panelUpdateCacheOK
 		// dev 构建没有可比的版本号：不联网、不提示，而不是拿 dev 和 tag 硬比
+		preview := service != nil && service.Status(ctx).Channel == panelupdate.ChannelPreview
 		if _, ok := parseSemver(current); checker != nil && ok {
-			latest, err := checker(ctx)
+			latest, err := checker(ctx, preview)
 			if err != nil {
 				result.Error = err.Error()
 				ttl = panelUpdateCacheFail
@@ -121,14 +123,35 @@ func registerPanelUpdateRoutes(router *http.ServeMux, current string, checker Pa
 		if !decodeSmallJSONBody(writer, request, &payload) {
 			return
 		}
-		if payload.Enabled == nil {
-			writeAPIError(writer, http.StatusBadRequest, "invalid_self_update_preference", "必须指定 enabled")
+		if payload.Enabled == nil && payload.Channel == nil {
+			writeAPIError(writer, http.StatusBadRequest, "invalid_self_update_preference", "必须指定 enabled 或 channel")
 			return
 		}
-		if err := service.SetEnabled(*payload.Enabled); err != nil {
+		if payload.Channel != nil && *payload.Channel != panelupdate.ChannelStable && *payload.Channel != panelupdate.ChannelPreview {
+			writeAPIError(writer, http.StatusBadRequest, "invalid_self_update_channel", "更新通道只能是 stable 或 preview")
+			return
+		}
+		var err error
+		if payload.Enabled != nil {
+			err = service.SetEnabled(*payload.Enabled)
+		}
+		if err == nil && payload.Channel != nil {
+			setter, ok := service.(interface{ SetChannel(string) error })
+			if !ok {
+				writeAPIError(writer, http.StatusServiceUnavailable, "panel_update_channel_unavailable",
+					"当前部署不支持切换面板更新通道")
+				return
+			}
+			err = setter.SetChannel(*payload.Channel)
+		}
+		if err != nil {
 			writeAPIError(writer, http.StatusInternalServerError, "self_update_preference_failed", err.Error())
 			return
 		}
+		mu.Lock()
+		expiresAt = time.Time{}
+		lastForcedCheck = time.Time{}
+		mu.Unlock()
 		writeJSON(writer, http.StatusOK, map[string]any{"status": service.Status(request.Context())})
 	})
 
@@ -157,11 +180,24 @@ func registerPanelUpdateRoutes(router *http.ServeMux, current string, checker Pa
 			writeAPIError(writer, http.StatusConflict, "panel_self_update_unavailable", status.Problem)
 			return
 		}
-		if !jobs.begin(PhaseDownloading, "panel", payload.Version, "面板自身") {
+		version := payload.Version
+		if version == "" {
+			latest := check(request.Context(), false)
+			if latest.Error != "" || latest.Latest == "" {
+				message := latest.Error
+				if message == "" {
+					message = "当前更新通道尚未取得可安装版本"
+				}
+				writeAPIError(writer, http.StatusConflict, "panel_update_version_unavailable", message)
+				return
+			}
+			version = latest.Latest
+		}
+		if !jobs.begin(PhaseDownloading, "panel", version, "面板自身") {
 			writeAPIError(writer, http.StatusConflict, "panel_self_update_in_progress", "已有升级任务正在执行")
 			return
 		}
-		go runPanelUpdate(jobs, service, operations, logger, payload.Version)
+		go runPanelUpdate(jobs, service, operations, logger, version)
 		writeJSON(writer, http.StatusAccepted, map[string]any{"job": jobs.snapshot()})
 	})
 }
@@ -213,7 +249,7 @@ func runPanelUpdate(jobs *installJobs, service PanelUpdateService, operations *s
 
 type semver struct {
 	parts      [3]int
-	prerelease bool
+	prerelease []string
 }
 
 // parseSemver 解析 vX.Y.Z 与 vX.Y.Z-pre。解析不了（如 "dev"）返回 false，
@@ -226,7 +262,14 @@ func parseSemver(value string) (semver, bool) {
 		return semver{}, false
 	}
 	var parsed semver
-	parsed.prerelease = hasPre
+	if hasPre {
+		parsed.prerelease = strings.Split(pre, ".")
+		for _, identifier := range parsed.prerelease {
+			if identifier == "" {
+				return semver{}, false
+			}
+		}
+	}
 	for index, field := range fields {
 		number, err := strconv.Atoi(field)
 		if err != nil || number < 0 || (len(field) > 1 && strings.HasPrefix(field, "0")) {
@@ -253,6 +296,29 @@ func versionBehind(current, latest string) bool {
 			return currentVersion.parts[index] < latestVersion.parts[index]
 		}
 	}
-	// 基数相同：当前是预发布而最新是正式版，语义上落后（v1.0.0-rc.1 < v1.0.0）
-	return currentVersion.prerelease && !latestVersion.prerelease
+	return prereleaseBehind(currentVersion.prerelease, latestVersion.prerelease)
+}
+
+func prereleaseBehind(current, latest []string) bool {
+	if len(current) == 0 || len(latest) == 0 {
+		return len(current) > 0 && len(latest) == 0
+	}
+	for index := 0; index < len(current) && index < len(latest); index++ {
+		if current[index] == latest[index] {
+			continue
+		}
+		currentNumber, currentErr := strconv.Atoi(current[index])
+		latestNumber, latestErr := strconv.Atoi(latest[index])
+		switch {
+		case currentErr == nil && latestErr == nil:
+			return currentNumber < latestNumber
+		case currentErr == nil:
+			return true
+		case latestErr == nil:
+			return false
+		default:
+			return current[index] < latest[index]
+		}
+	}
+	return len(current) < len(latest)
 }

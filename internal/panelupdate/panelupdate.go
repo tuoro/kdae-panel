@@ -34,6 +34,8 @@ const (
 	restartDelay       = 1500 * time.Millisecond
 	elfMagic           = "\x7fELF"
 	maxPreferenceBytes = 4 << 10
+	ChannelStable      = "stable"
+	ChannelPreview     = "preview"
 )
 
 // ServiceController 是面板自身 systemd 单元的控制入口。
@@ -55,6 +57,8 @@ type Status struct {
 	// Enabled 是管理员在界面里保存的选择。关闭时仍返回 Status，界面才能
 	// 提供启用入口，而不是把用户赶去 SSH 修改环境文件。
 	Enabled bool `json:"enabled"`
+	// Channel 默认是 stable；preview 允许版本检查发现 GitHub prerelease。
+	Channel string `json:"channel"`
 	// Updatable 为假时界面不应给出升级入口，Problem 说明原因。
 	Updatable bool   `json:"updatable"`
 	Problem   string `json:"problem,omitempty"`
@@ -82,6 +86,7 @@ type Manager struct {
 	preferencePath string
 	preferenceMu   sync.Mutex
 	enabled        atomic.Bool
+	preview        atomic.Bool
 	fetcher        Fetcher
 	service        ServiceController
 	logger         *slog.Logger
@@ -156,6 +161,7 @@ func (m *Manager) Status(context.Context) Status {
 		BinaryPath: m.binaryPath,
 		Platform:   runtime.GOOS + "/" + runtime.GOARCH,
 		Enabled:    m.enabled.Load(),
+		Channel:    m.Channel(),
 	}
 	backupInfo, backupErr := os.Lstat(m.backupPath)
 	switch {
@@ -282,7 +288,8 @@ func (m *Manager) Apply(ctx context.Context, binary upstream.PanelBinary) error 
 }
 
 type preference struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool   `json:"enabled"`
+	Channel string `json:"channel,omitempty"`
 }
 
 // SetEnabled 保存界面里的开关。先持久化再切换内存状态，磁盘失败时界面不会
@@ -290,7 +297,28 @@ type preference struct {
 func (m *Manager) SetEnabled(enabled bool) error {
 	m.preferenceMu.Lock()
 	defer m.preferenceMu.Unlock()
-	encoded, err := json.Marshal(preference{Enabled: enabled})
+	return m.savePreference(enabled, m.Channel())
+}
+
+// SetChannel 保存更新通道。预发布通道只改变版本发现，不降低下载与替换校验。
+func (m *Manager) SetChannel(channel string) error {
+	if channel != ChannelStable && channel != ChannelPreview {
+		return fmt.Errorf("未知面板更新通道 %q", channel)
+	}
+	m.preferenceMu.Lock()
+	defer m.preferenceMu.Unlock()
+	return m.savePreference(m.enabled.Load(), channel)
+}
+
+func (m *Manager) Channel() string {
+	if m.preview.Load() {
+		return ChannelPreview
+	}
+	return ChannelStable
+}
+
+func (m *Manager) savePreference(enabled bool, channel string) error {
+	encoded, err := json.Marshal(preference{Enabled: enabled, Channel: channel})
 	if err != nil {
 		return err
 	}
@@ -298,6 +326,7 @@ func (m *Manager) SetEnabled(enabled bool) error {
 		return fmt.Errorf("保存面板自升级偏好: %w", err)
 	}
 	m.enabled.Store(enabled)
+	m.preview.Store(channel == ChannelPreview)
 	return nil
 }
 
@@ -324,6 +353,14 @@ func (m *Manager) loadPreference() error {
 		return fmt.Errorf("解析 %s: %w", m.preferencePath, err)
 	}
 	m.enabled.Store(saved.Enabled)
+	switch saved.Channel {
+	case "", ChannelStable:
+		m.preview.Store(false)
+	case ChannelPreview:
+		m.preview.Store(true)
+	default:
+		return fmt.Errorf("解析 %s: 未知面板更新通道 %q", m.preferencePath, saved.Channel)
+	}
 	return nil
 }
 
