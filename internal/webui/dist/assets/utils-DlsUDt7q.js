@@ -1,1 +1,0 @@
-import{Tn as e}from"./client-Bvr5b7kq.js";function t(){return e()!==null}var n=typeof window<`u`;export{n,t};
