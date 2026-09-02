@@ -38,11 +38,17 @@ X-CSRF-Token: <csrfToken>
 | `GET` | `/config` | 入口配置文本、SHA-256 和文件元数据 |
 | `POST` | `/config/validate` | 只校验候选内容 |
 | `PUT` | `/config` | 保存候选内容，可选择立即重载 |
+| `GET` | `/config/section-versions` | 列出当前配置绑定的 DNS 和路由区块版本 |
+| `POST` | `/config/section-versions` | 保存一个 DNS 或路由区块版本 |
+| `PUT` | `/config/section-versions/{id}` | 更新区块版本名称和内容 |
+| `DELETE` | `/config/section-versions/{id}` | 删除区块版本 |
 | `GET` | `/config/backups` | 列出自动备份和手动配置存档 |
 | `POST` | `/config/backups` | 将当前入口配置保存为带名称、备注的手动存档 |
+| `POST` | `/config/backups/import` | 导入完整 `.kdae` 配置包或兼容的原始 `.dae` 配置 |
 | `PUT` | `/config/backups/{id}` | 修改存档名称和备注 |
 | `DELETE` | `/config/backups/{id}` | 删除存档内容及其元数据 |
-| `GET` | `/config/backups/{id}/export` | 以 `.dae` 文件导出存档原始内容 |
+| `GET` | `/config/backups/{id}/export` | 导出包含配置和区块版本的 `.kdae` 配置包 |
+| `GET` | `/config/backups/{id}/export?format=dae` | 仅以 `.dae` 文件导出存档原始内容 |
 | `GET` | `/config/backups/{id}/preview` | 对比存档与当前配置，并用当前 dae 预先校验 |
 | `POST` | `/config/backups/{id}/restore` | 恢复指定备份或存档 |
 
@@ -55,7 +61,9 @@ X-CSRF-Token: <csrfToken>
 }
 ```
 
-`name` 必填，去除首尾空白后最多 80 个字符；`note` 可选，最多 500 个字符。没有名称和备注的旧备份在前端显示为“自动备份”，也可以通过编辑接口补充。备份内容仍是独立的 `.dae` 文件，名称和备注保存在同编号的 `.meta.json` 文件中；导出保持配置原始字节不变，不执行校验或重载；删除存档会同时删除内容与元数据，前端支持多选后批量调用删除接口。
+`name` 必填，去除首尾空白后最多 80 个字符；`note` 可选，最多 500 个字符。没有名称和备注的旧备份在前端显示为“自动备份”，也可以通过编辑接口补充。每份备份会同时快照当前 DNS 和路由区块版本；完整导出使用 `.kdae` ZIP 包，包含 `config.dae`、`versions.json` 和 `manifest.json`。原始 `.dae` 导出保持配置字节不变。删除或保留策略清理存档时会一并清理元数据和区块版本快照。
+
+区块版本请求的 `kind` 为 `dns` 或 `routing`，`name` 最多 80 个字符，`content` 是不含外层区块声明的完整区块内容。切换版本只替换配置草稿中的对应区块；是否保存和重载仍由配置保存接口统一决定。导入 `.kdae` 或 `.dae` 只创建存档，不直接覆盖运行配置，恢复前仍应调用预览接口。
 
 保存示例：
 
@@ -75,7 +83,7 @@ X-CSRF-Token: <csrfToken>
 
 所有备份（包括手动存档）共用最多 50 份、总大小 256 MiB 的保留上限。达到上限时按文件创建时间清理最旧的备份，手动存档的元数据会随对应内容一起清理。
 
-恢复前应先请求 `GET /config/backups/{id}/preview`。响应包含存档元数据、当前配置哈希、`same`、`valid`、校验错误和逐行 `diff`；前端以 `currentHash` 作为恢复请求的乐观锁。精确差异使用有边界的行级比较，最多返回 4000 行；输入超过 5 万行时不展开差异，但仍完整执行 dae 配置校验。预览不能代替恢复事务内的最终校验，磁盘在两次请求之间变化时恢复会返回 `409 configuration_conflict`。
+恢复前应先请求 `GET /config/backups/{id}/preview`。响应包含存档元数据、当前配置哈希、`same`、`configSame`、`versionsSame`、`valid`、校验错误和逐行 `diff`；只有 dae 配置与区块版本库都相同时 `same` 才为真。前端以 `currentHash` 作为恢复请求的乐观锁。精确差异使用有边界的行级比较，最多返回 4000 行；输入超过 5 万行时不展开差异，但仍完整执行 dae 配置校验。预览不能代替恢复事务内的最终校验，磁盘在两次请求之间变化时恢复会返回 `409 configuration_conflict`。
 
 常见错误码：
 

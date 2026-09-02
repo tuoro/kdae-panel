@@ -37,6 +37,7 @@ import {
 import { setSectionBody } from '../../utils/daeconf'
 import DNSRulesEditor from './DNSRulesEditor.vue'
 import DNSUpstreamEditor from './DNSUpstreamEditor.vue'
+import SectionVersionControls from './SectionVersionControls.vue'
 
 const content = defineModel<string>({ required: true })
 const message = useMessage()
@@ -79,6 +80,10 @@ function openEditor() {
   simpleDraft.value = cloneDNSDraft(current.present && current.body.trim() !== '' ? current.draft : defaultDNSDraft())
   editorTab.value = current.simpleSafe ? 'simple' : 'advanced'
   editorVisible.value = true
+}
+
+function applyVersion(body: string) {
+  content.value = setSectionBody(content.value, 'dns', body)
 }
 
 function changeEditorTab(value: string) {
@@ -185,6 +190,7 @@ onMounted(() => void loadCapabilities())
   <NCard title="DNS 设置" class="panel-card dns-card" data-testid="dns-card">
     <template #header-extra>
       <NSpace size="small" align="center">
+        <SectionVersionControls kind="dns" :body="state.body" @apply="applyVersion" />
         <NTag v-if="!state.simpleSafe" size="small" type="warning" :bordered="false">进阶配置</NTag>
         <NTag size="small" :bordered="false">{{ upstreamCount }} 个上游</NTag>
         <NTag size="small" :bordered="false">{{ requestCount + responseCount }} 条规则</NTag>

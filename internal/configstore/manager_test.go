@@ -417,3 +417,121 @@ func TestRestoreRejectsTraversal(t *testing.T) {
 		t.Fatalf("错误 = %v，期望不存在", err)
 	}
 }
+
+func TestSectionVersionsAreScopedAndDeduplicated(t *testing.T) {
+	manager, _ := newTestManager(t, "global {}", &fakeController{})
+	dns, err := manager.CreateSectionVersion(context.Background(), SectionDNS, " 家庭网络 ", "  upstream {}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dns.Name != "家庭网络" || dns.Kind != SectionDNS || dns.Hash == "" {
+		t.Fatalf("DNS 版本异常: %+v", dns)
+	}
+	if _, err := manager.CreateSectionVersion(context.Background(), SectionDNS, "重复内容", dns.Content); !errors.Is(err, ErrConflict) {
+		t.Fatalf("重复内容错误 = %v", err)
+	}
+	routing, err := manager.CreateSectionVersion(context.Background(), SectionRouting, "家庭网络", "  fallback: direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := manager.UpdateSectionVersion(context.Background(), routing.ID, "公司网络", "  fallback: proxy")
+	if err != nil || updated.Name != "公司网络" || updated.Content != "  fallback: proxy" {
+		t.Fatalf("更新路由版本异常: version=%+v err=%v", updated, err)
+	}
+	if err := manager.DeleteSectionVersion(context.Background(), dns.ID); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := manager.ListSectionVersions(context.Background())
+	if err != nil || len(listed.Versions) != 1 || listed.Versions[0].ID != routing.ID {
+		t.Fatalf("版本列表异常: versions=%+v err=%v", listed, err)
+	}
+}
+
+func TestBackupRestoresBoundSectionVersions(t *testing.T) {
+	manager, _ := newTestManager(t, "global {}", &fakeController{})
+	dns, err := manager.CreateSectionVersion(context.Background(), SectionDNS, "家庭网络", "  upstream { home: '1.1.1.1' }")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup, err := manager.CreateBackup(context.Background(), "家庭配置", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backup.DNSVersions != 1 || backup.RoutingVersions != 0 {
+		t.Fatalf("备份版本计数异常: %+v", backup)
+	}
+	if _, err := manager.UpdateSectionVersion(context.Background(), dns.ID, "公司网络", "  upstream { office: '8.8.8.8' }"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.CreateSectionVersion(context.Background(), SectionRouting, "公司网络", "  fallback: proxy"); err != nil {
+		t.Fatal(err)
+	}
+	manager.now = func() time.Time { return time.Date(2026, 7, 21, 1, 2, 4, 4, time.UTC) }
+	current, _ := manager.Read(context.Background())
+	if _, err := manager.Restore(context.Background(), backup.ID, current.Hash, false); err != nil {
+		t.Fatal(err)
+	}
+	versions, err := manager.ListSectionVersions(context.Background())
+	if err != nil || len(versions.Versions) != 1 {
+		t.Fatalf("恢复后的版本列表异常: %+v err=%v", versions, err)
+	}
+	if restored := versions.Versions[0]; restored.Name != "家庭网络" || restored.Content != "  upstream { home: '1.1.1.1' }" {
+		t.Fatalf("恢复后的 DNS 版本异常: %+v", restored)
+	}
+}
+
+func TestPreviewDetectsBoundVersionChangesWhenConfigIsUnchanged(t *testing.T) {
+	manager, _ := newTestManager(t, "global { log_level: info }", &fakeController{})
+	dns, err := manager.CreateSectionVersion(context.Background(), SectionDNS, "家庭网络", "  upstream { home: '1.1.1.1' }")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup, err := manager.CreateBackup(context.Background(), "家庭配置", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.UpdateSectionVersion(context.Background(), dns.ID, "公司网络", "  upstream { office: '8.8.8.8' }"); err != nil {
+		t.Fatal(err)
+	}
+
+	preview, err := manager.PreviewBackup(context.Background(), backup.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.Valid || !preview.ConfigSame || preview.VersionsSame || preview.Same {
+		t.Fatalf("预览应识别仅区块版本发生变化: %+v", preview)
+	}
+}
+
+func TestBackupPackageRoundTripsConfigurationAndVersions(t *testing.T) {
+	source, _ := newTestManager(t, "global { log_level: info }", &fakeController{})
+	if _, err := source.CreateSectionVersion(context.Background(), SectionDNS, "家庭网络", "  upstream { home: '1.1.1.1' }"); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := source.CreateBackup(context.Background(), "可移植配置", "包含区块版本")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported, err := source.ExportBackupPackage(context.Background(), backup.ID)
+	if err != nil || len(exported.Content) < 4 || string(exported.Content[:2]) != "PK" {
+		t.Fatalf("导出配置包异常: size=%d err=%v", len(exported.Content), err)
+	}
+
+	target, _ := newTestManager(t, "global { log_level: warn }", &fakeController{})
+	imported, err := target.ImportBackup(context.Background(), exported.Content, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if imported.Name != "可移植配置" || imported.DNSVersions != 1 {
+		t.Fatalf("导入配置包异常: %+v", imported)
+	}
+	current, _ := target.Read(context.Background())
+	if _, err := target.Restore(context.Background(), imported.ID, current.Hash, false); err != nil {
+		t.Fatal(err)
+	}
+	restored, _ := target.Read(context.Background())
+	versions, _ := target.ListSectionVersions(context.Background())
+	if restored.Content != "global { log_level: info }" || len(versions.Versions) != 1 {
+		t.Fatalf("配置包恢复不完整: config=%q versions=%+v", restored.Content, versions)
+	}
+}
