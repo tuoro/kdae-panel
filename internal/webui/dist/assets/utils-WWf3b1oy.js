@@ -1,1 +1,0 @@
-import{jn as e}from"./client-DOvxO6I9.js";function t(){return e()!==null}var n=typeof window<`u`;export{n,t};

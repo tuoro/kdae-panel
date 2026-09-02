@@ -1,0 +1,1 @@
+import{jn as e}from"./client-BDSaduAi.js";function t(){return e()!==null}var n=typeof window<`u`;export{n,t};
