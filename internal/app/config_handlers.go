@@ -32,6 +32,12 @@ type backupMetadataRequest struct {
 	Note string `json:"note,omitempty"`
 }
 
+type sectionVersionRequest struct {
+	Kind    configstore.SectionKind `json:"kind,omitempty"`
+	Name    string                  `json:"name"`
+	Content string                  `json:"content"`
+}
+
 func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationService, managed ManagedSubscriptionService, operations *sync.Mutex) {
 	if service == nil {
 		unavailable := func(writer http.ResponseWriter, _ *http.Request) {
@@ -40,8 +46,13 @@ func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationSer
 		router.HandleFunc("GET /api/v1/config", unavailable)
 		router.HandleFunc("PUT /api/v1/config", unavailable)
 		router.HandleFunc("POST /api/v1/config/validate", unavailable)
+		router.HandleFunc("GET /api/v1/config/section-versions", unavailable)
+		router.HandleFunc("POST /api/v1/config/section-versions", unavailable)
+		router.HandleFunc("PUT /api/v1/config/section-versions/{id}", unavailable)
+		router.HandleFunc("DELETE /api/v1/config/section-versions/{id}", unavailable)
 		router.HandleFunc("GET /api/v1/config/backups", unavailable)
 		router.HandleFunc("POST /api/v1/config/backups", unavailable)
+		router.HandleFunc("POST /api/v1/config/backups/import", unavailable)
 		router.HandleFunc("PUT /api/v1/config/backups/{id}", unavailable)
 		router.HandleFunc("DELETE /api/v1/config/backups/{id}", unavailable)
 		router.HandleFunc("GET /api/v1/config/backups/{id}/export", unavailable)
@@ -110,6 +121,47 @@ func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationSer
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
+	router.HandleFunc("GET /api/v1/config/section-versions", func(writer http.ResponseWriter, request *http.Request) {
+		versions, err := service.ListSectionVersions(request.Context())
+		if err != nil {
+			writeConfigurationError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, versions)
+	})
+	router.HandleFunc("POST /api/v1/config/section-versions", func(writer http.ResponseWriter, request *http.Request) {
+		var payload sectionVersionRequest
+		if !decodeJSONBody(writer, request, &payload) {
+			return
+		}
+		version, err := service.CreateSectionVersion(
+			request.Context(), payload.Kind, payload.Name, payload.Content)
+		if err != nil {
+			writeConfigurationError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusCreated, version)
+	})
+	router.HandleFunc("PUT /api/v1/config/section-versions/{id}", func(writer http.ResponseWriter, request *http.Request) {
+		var payload sectionVersionRequest
+		if !decodeJSONBody(writer, request, &payload) {
+			return
+		}
+		version, err := service.UpdateSectionVersion(
+			request.Context(), request.PathValue("id"), payload.Name, payload.Content)
+		if err != nil {
+			writeConfigurationError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, version)
+	})
+	router.HandleFunc("DELETE /api/v1/config/section-versions/{id}", func(writer http.ResponseWriter, request *http.Request) {
+		if err := service.DeleteSectionVersion(request.Context(), request.PathValue("id")); err != nil {
+			writeConfigurationError(writer, err)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})
 	router.HandleFunc("GET /api/v1/config/backups", func(writer http.ResponseWriter, request *http.Request) {
 		backups, err := service.ListBackups(request.Context())
 		if err != nil {
@@ -124,6 +176,31 @@ func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationSer
 			return
 		}
 		backup, err := service.CreateBackup(request.Context(), payload.Name, payload.Note)
+		if err != nil {
+			writeConfigurationError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusCreated, backup)
+	})
+	router.HandleFunc("POST /api/v1/config/backups/import", func(writer http.ResponseWriter, request *http.Request) {
+		request.Body = http.MaxBytesReader(writer, request.Body, configstore.MaxPackageBytes+(1<<20))
+		if err := request.ParseMultipartForm(configstore.MaxPackageBytes); err != nil {
+			writeAPIError(writer, http.StatusBadRequest, "configuration_package_invalid", "配置包上传无效: "+err.Error())
+			return
+		}
+		file, _, err := request.FormFile("file")
+		if err != nil {
+			writeAPIError(writer, http.StatusBadRequest, "configuration_package_invalid", "请选择要导入的 .kdae 或 .dae 文件")
+			return
+		}
+		defer file.Close()
+		content, err := io.ReadAll(io.LimitReader(file, configstore.MaxPackageBytes+1))
+		if err != nil || len(content) > configstore.MaxPackageBytes {
+			writeAPIError(writer, http.StatusBadRequest, "configuration_package_invalid", "配置包读取失败或超过大小限制")
+			return
+		}
+		backup, err := service.ImportBackup(
+			request.Context(), content, request.FormValue("name"), request.FormValue("note"))
 		if err != nil {
 			writeConfigurationError(writer, err)
 			return
@@ -151,14 +228,29 @@ func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationSer
 		writer.WriteHeader(http.StatusNoContent)
 	})
 	router.HandleFunc("GET /api/v1/config/backups/{id}/export", func(writer http.ResponseWriter, request *http.Request) {
-		exported, err := service.ExportBackup(request.Context(), request.PathValue("id"))
+		if request.URL.Query().Get("format") == "dae" {
+			exported, err := service.ExportBackup(request.Context(), request.PathValue("id"))
+			if err != nil {
+				writeConfigurationError(writer, err)
+				return
+			}
+			writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			writer.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{
+				"filename": backupDownloadName(exported.Backup, ".dae"),
+			}))
+			writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(exported.Content)))
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write(exported.Content)
+			return
+		}
+		exported, err := service.ExportBackupPackage(request.Context(), request.PathValue("id"))
 		if err != nil {
 			writeConfigurationError(writer, err)
 			return
 		}
-		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		writer.Header().Set("Content-Type", "application/zip")
 		writer.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{
-			"filename": backupDownloadName(exported.Backup),
+			"filename": backupDownloadName(exported.Backup, ".kdae"),
 		}))
 		writer.Header().Set("Content-Length", fmt.Sprintf("%d", len(exported.Content)))
 		writer.WriteHeader(http.StatusOK)
@@ -195,7 +287,7 @@ func registerConfigurationRoutes(router *http.ServeMux, service ConfigurationSer
 	})
 }
 
-func backupDownloadName(backup configstore.Backup) string {
+func backupDownloadName(backup configstore.Backup, extension string) string {
 	name := strings.TrimSpace(backup.Name)
 	name = strings.Map(func(value rune) rune {
 		if unicode.IsControl(value) || strings.ContainsRune(`/\:*?"<>|`, value) {
@@ -207,8 +299,11 @@ func backupDownloadName(backup configstore.Backup) string {
 	if name == "" {
 		name = strings.TrimSuffix(backup.ID, ".dae")
 	}
-	if !strings.HasSuffix(strings.ToLower(name), ".dae") {
-		name += ".dae"
+	if !strings.HasPrefix(extension, ".") {
+		extension = "." + extension
+	}
+	if !strings.HasSuffix(strings.ToLower(name), strings.ToLower(extension)) {
+		name += extension
 	}
 	return name
 }

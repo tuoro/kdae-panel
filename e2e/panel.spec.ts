@@ -409,6 +409,12 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await guardedDNSModal.getByRole('button', { name: '应用到配置' }).click()
     await expect(dns.getByText('进阶配置', { exact: true })).toHaveCount(0)
 
+    await dns.getByRole('button', { name: '另存为' }).click()
+    const dnsVersionModal = page.locator('.n-modal', { hasText: '保存 DNS 版本' })
+    await dnsVersionModal.getByPlaceholder('例如：家庭网络').fill('家庭网络')
+    await dnsVersionModal.getByRole('button', { name: '保存版本' }).click()
+    await expect(dns).toContainText('家庭网络')
+
     const groups = page.getByTestId('groups-card')
     await groups.getByPlaceholder('新分组名，如 proxy').fill('proxy')
     await groups.getByRole('button', { name: '新建' }).click()
@@ -526,6 +532,12 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await reopenedRoutingModal.getByRole('button', { name: '应用到配置' }).click()
     await expect(routing.getByText('pname(NetworkManager, systemd-resolved, dnsmasq)')).toBeVisible()
 
+    await routing.getByRole('button', { name: '另存为' }).click()
+    const routingVersionModal = page.locator('.n-modal', { hasText: '保存 路由 版本' })
+    await routingVersionModal.getByPlaceholder('例如：家庭网络').fill('家庭网络')
+    await routingVersionModal.getByRole('button', { name: '保存版本' }).click()
+    await expect(routing).toContainText('家庭网络')
+
     await page.locator('.page-toolbar').getByRole('button', { name: '保存并重载' }).click()
     await page.locator('.n-dialog').getByRole('button', { name: '保存并重载' }).click()
     await expect(page.getByText('配置已保存并完成无损重载').first()).toBeVisible()
@@ -603,6 +615,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await editor.getByRole('button', { name: '保存存档' }).click()
     const row = page.locator('tr', { hasText: 'E2E 稳定配置' })
     await expect(row).toContainText('E2E 回档测试')
+    await expect(row).toContainText('DNS 1 · 路由 1')
 
     await row.getByTitle('编辑名称和备注').click()
     const editModal = page.locator('.n-modal', { hasText: '编辑配置存档' })
@@ -611,9 +624,16 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     const renamedRow = page.locator('tr', { hasText: 'E2E 已命名配置' })
     await expect(renamedRow).toContainText('E2E 回档测试')
     await expect(renamedRow.getByRole('button', { name: '对比' })).toBeVisible()
-    const downloadPromise = page.waitForEvent('download')
+    const packageDownloadPromise = page.waitForEvent('download')
     await renamedRow.getByRole('button', { name: '导出' }).click()
-    const download = await downloadPromise
+    await page.getByText('完整配置包（.kdae）', { exact: true }).click()
+    const packageDownload = await packageDownloadPromise
+    expect(packageDownload.suggestedFilename()).toBe('E2E 已命名配置.kdae')
+
+    const rawDownloadPromise = page.waitForEvent('download')
+    await renamedRow.getByRole('button', { name: '导出' }).click()
+    await page.getByText('仅 dae 配置（.dae）', { exact: true }).click()
+    const download = await rawDownloadPromise
     expect(download.suggestedFilename()).toBe('E2E 已命名配置.dae')
     const downloadedPath = await download.path()
     expect(downloadedPath).not.toBeNull()
@@ -633,7 +653,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(mobileSelection).toBeVisible()
 
     const toolbarButtons = page.locator('.backup-toolbar-actions .n-button')
-    await expect(toolbarButtons).toHaveCount(3)
+    await expect(toolbarButtons).toHaveCount(4)
     const toolbarTops = await toolbarButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().top))
     expect(Math.max(...toolbarTops) - Math.min(...toolbarTops)).toBeLessThanOrEqual(1)
 
@@ -667,7 +687,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
 
     await renamedRow.getByRole('button', { name: '恢复' }).click()
     const diffModal = page.locator('.n-modal', { hasText: '配置差异 · E2E 已命名配置' })
-    await expect(diffModal.getByText('这份存档与当前配置内容相同，无需恢复。')).toBeVisible()
+    await expect(diffModal.getByText('这份存档与当前配置及区块版本相同，无需恢复。')).toBeVisible()
     await expect(diffModal.getByRole('button', { name: '恢复并重载' })).toBeDisabled()
     await diffModal.getByRole('button', { name: '关闭' }).click()
 

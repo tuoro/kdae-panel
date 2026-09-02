@@ -44,6 +44,18 @@
   text-rendering: optimizeLegibility;
 }
 
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -1814,6 +1826,20 @@ pre,
   min-height: auto;
 }
 
+.section-version-controls {
+  padding-right: 8px;
+  margin-right: 2px;
+  border-right: 1px solid var(--border-soft);
+}
+
+.section-version-select {
+  width: 152px;
+}
+
+.n-card.n-modal.section-version-modal {
+  width: min(440px, calc(100vw - 32px));
+}
+
 .card-alert {
   margin-bottom: 14px;
 }
@@ -3416,7 +3442,7 @@ pre,
 
   .backups-page .page-toolbar > .backup-toolbar-actions {
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) 42px;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 0.7fr) 42px;
     gap: 6px !important;
   }
 
@@ -3558,6 +3584,18 @@ pre,
   .dns-card .n-card-header__extra .n-space {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .section-version-controls {
+    width: 100%;
+    padding-right: 0;
+    margin-right: 0;
+    border-right: 0;
+  }
+
+  .section-version-select {
+    flex: 1;
+    min-width: 150px;
   }
 
   .dns-settings-grid {

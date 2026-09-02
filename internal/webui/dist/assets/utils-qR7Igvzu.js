@@ -1,1 +1,0 @@
-import{An as e}from"./client-DecrR2G0.js";function t(){return e()!==null}var n=typeof window<`u`;export{n,t};

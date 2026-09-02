@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
-import { NAlert, NButton, NCard, NCheckbox, NDataTable, NEmpty, NIcon, NInput, NModal, NSpace, NSpin, NTag, NText, useDialog, useMessage, type DataTableColumns, type DataTableRowKey } from 'naive-ui'
-import { CreateOutline, DownloadOutline, GitCompareOutline, PencilOutline, RefreshOutline, ReturnUpBackOutline, TrashOutline } from '@vicons/ionicons5'
-import { deleteJSON, getDownload, getJSON, postJSON, putJSON } from '../api/client'
+import { NAlert, NButton, NCard, NCheckbox, NDataTable, NDropdown, NEmpty, NIcon, NInput, NModal, NSpace, NSpin, NTag, NText, useDialog, useMessage, type DataTableColumns, type DataTableRowKey } from 'naive-ui'
+import { CloudUploadOutline, CreateOutline, DownloadOutline, GitCompareOutline, PencilOutline, RefreshOutline, ReturnUpBackOutline, TrashOutline } from '@vicons/ionicons5'
+import { deleteJSON, getDownload, getJSON, postForm, postJSON, putJSON } from '../api/client'
 import type { ConfigBackup, ConfigBackupPreview, ConfigSaveResult } from '../types/api'
 import { useMobileViewport } from '../composables/useMobileViewport'
 import { formatBytes, formatDateTime, shortHash } from '../utils/format'
@@ -15,6 +15,8 @@ const restoring = ref('')
 const deleting = ref('')
 const batchDeleting = ref(false)
 const exporting = ref('')
+const importing = ref(false)
+const importInput = ref<HTMLInputElement | null>(null)
 const backups = ref<ConfigBackup[]>([])
 const checkedRowKeys = ref<DataTableRowKey[]>([])
 const editorVisible = ref(false)
@@ -32,7 +34,7 @@ const allBackupsSelected = computed(() => backups.value.length > 0
 const someBackupsSelected = computed(() => selectedCount.value > 0 && !allBackupsSelected.value)
 const interactionBusy = computed(() => Boolean(
   loading.value || saving.value || restoring.value || deleting.value
-  || batchDeleting.value || previewLoading.value || exporting.value,
+  || batchDeleting.value || previewLoading.value || exporting.value || importing.value,
 ))
 
 const columns: DataTableColumns<ConfigBackup> = [
@@ -74,6 +76,12 @@ const columns: DataTableColumns<ConfigBackup> = [
     render: (row) => formatBytes(row.size),
   },
   {
+    title: '区块版本',
+    key: 'versions',
+    minWidth: 150,
+    render: (row) => `DNS ${row.dnsVersions || 0} · 路由 ${row.routingVersions || 0}`,
+  },
+  {
     title: '操作',
     key: 'actions',
     width: 376,
@@ -92,14 +100,23 @@ const columns: DataTableColumns<ConfigBackup> = [
             icon: () => h(NIcon, null, { default: () => h(GitCompareOutline) }),
             default: () => '对比',
           }),
-          h(NButton, {
-            size: 'small', secondary: true,
-            loading: exporting.value === row.id,
+          h(NDropdown, {
+            trigger: 'click',
+            options: [
+              { label: '完整配置包（.kdae）', key: 'package' },
+              { label: '仅 dae 配置（.dae）', key: 'dae' },
+            ],
             disabled: interactionBusy.value,
-            onClick: () => void exportBackup(row),
+            onSelect: (format: string) => void exportBackup(row, format === 'dae'),
           }, {
-            icon: () => h(NIcon, null, { default: () => h(DownloadOutline) }),
-            default: () => '导出',
+            default: () => h(NButton, {
+              size: 'small', secondary: true,
+              loading: exporting.value === row.id,
+              disabled: interactionBusy.value,
+            }, {
+              icon: () => h(NIcon, null, { default: () => h(DownloadOutline) }),
+              default: () => '导出',
+            }),
           }),
           h(NButton, {
             size: 'small', secondary: true, type: 'primary',
@@ -145,21 +162,46 @@ async function load() {
   }
 }
 
-async function exportBackup(backup: ConfigBackup) {
+async function exportBackup(backup: ConfigBackup, raw = false) {
   exporting.value = backup.id
   try {
-    const result = await getDownload(`/api/v1/config/backups/${encodeURIComponent(backup.id)}/export`)
+    const suffix = raw ? '?format=dae' : ''
+    const result = await getDownload(`/api/v1/config/backups/${encodeURIComponent(backup.id)}/export${suffix}`)
     const url = URL.createObjectURL(result.blob)
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = result.filename
     anchor.click()
     URL.revokeObjectURL(url)
-    message.success('配置存档已导出')
+    message.success(raw ? 'dae 配置已导出' : '完整配置包已导出')
   } catch (error) {
     message.error(error instanceof Error ? error.message : '导出配置存档失败')
   } finally {
     exporting.value = ''
+  }
+}
+
+function chooseImport() {
+  importInput.value?.click()
+}
+
+async function importBackup(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  importing.value = true
+  try {
+    const payload = new FormData()
+    payload.append('file', file)
+    payload.append('name', file.name.replace(/\.(?:kdae|dae)$/i, ''))
+    await postForm<ConfigBackup>('/api/v1/config/backups/import', payload)
+    message.success('配置包已导入存档，确认差异后即可恢复')
+    await load()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '导入配置包失败')
+  } finally {
+    importing.value = false
   }
 }
 
@@ -315,6 +357,7 @@ onMounted(() => void load())
         <h2>配置历史</h2>
         <NText depth="3">保存当前配置或查看自动历史；恢复操作同样受并发摘要保护</NText>
       </div>
+      <input ref="importInput" class="visually-hidden" type="file" accept=".kdae,.dae" @change="importBackup">
       <NSpace class="backup-toolbar-actions" :wrap="false">
         <NButton
           type="error"
@@ -328,6 +371,9 @@ onMounted(() => void load())
         </NButton>
         <NButton type="primary" secondary :disabled="interactionBusy" @click="openEditor()">
           <template #icon><NIcon><CreateOutline /></NIcon></template>保存当前配置
+        </NButton>
+        <NButton secondary :loading="importing" :disabled="interactionBusy" @click="chooseImport">
+          <template #icon><NIcon><CloudUploadOutline /></NIcon></template>导入
         </NButton>
         <NButton
           class="backup-refresh-action"
@@ -351,7 +397,7 @@ onMounted(() => void load())
         :loading="loading"
         :row-key="(row: ConfigBackup) => row.id"
         :checked-row-keys="checkedRowKeys"
-        :scroll-x="960"
+        :scroll-x="1120"
         :bordered="false"
         @update:checked-row-keys="checkedRowKeys = $event"
       />
@@ -384,6 +430,7 @@ onMounted(() => void load())
               <div class="mobile-record-meta">
                 <span>创建<strong>{{ formatDateTime(backup.createdAt) }}</strong></span>
                 <span>大小<strong>{{ formatBytes(backup.size) }}</strong></span>
+                <span>区块版本<strong>DNS {{ backup.dnsVersions || 0 }} · 路由 {{ backup.routingVersions || 0 }}</strong></span>
               </div>
               <div class="mobile-action-row backup-mobile-actions">
                 <NButton
@@ -482,16 +529,19 @@ onMounted(() => void load())
           <pre class="backup-validation-error">{{ preview.validationError }}</pre>
         </NAlert>
         <NAlert v-else-if="preview.same" type="success" :bordered="false">
-          这份存档与当前配置内容相同，无需恢复。
+          这份存档与当前配置及区块版本相同，无需恢复。
+        </NAlert>
+        <NAlert v-else-if="preview.configSame && !preview.versionsSame" type="info" :bordered="false">
+          dae 配置内容相同，但 DNS 或路由版本不同；恢复会同步这份存档绑定的区块版本。
         </NAlert>
         <NAlert v-else-if="preview.diffTruncated" type="warning" :bordered="false">
           配置差异较大，下面只展示有边界的结果；目标配置仍已完整通过 dae 校验。
         </NAlert>
-        <div class="backup-diff-legend">
+        <div v-if="!preview.configSame" class="backup-diff-legend">
           <span class="backup-diff-remove">− 当前配置删除</span>
           <span class="backup-diff-add">+ 存档配置加入</span>
         </div>
-        <div class="backup-diff" role="region" aria-label="当前配置与存档配置差异">
+        <div v-if="!preview.configSame" class="backup-diff" role="region" aria-label="当前配置与存档配置差异">
           <div
             v-for="(line, index) in preview.diff"
             :key="`${index}:${line.kind}:${line.oldLine}:${line.newLine}`"

@@ -77,6 +77,30 @@ func (s stubConfigurationService) ExportBackup(_ context.Context, id string) (co
 	return configstore.BackupExport{Backup: configstore.Backup{ID: id}, Content: []byte("global {}")}, nil
 }
 
+func (s stubConfigurationService) ExportBackupPackage(_ context.Context, id string) (configstore.BackupPackageExport, error) {
+	return configstore.BackupPackageExport{Backup: configstore.Backup{ID: id}, Content: []byte("package")}, nil
+}
+
+func (s stubConfigurationService) ImportBackup(_ context.Context, _ []byte, name, note string) (configstore.Backup, error) {
+	return configstore.Backup{Name: name, Note: note}, nil
+}
+
+func (s stubConfigurationService) ListSectionVersions(_ context.Context) (configstore.SectionVersions, error) {
+	return configstore.SectionVersions{SchemaVersion: 1, Versions: []configstore.SectionVersion{}}, nil
+}
+
+func (s stubConfigurationService) CreateSectionVersion(_ context.Context, kind configstore.SectionKind, name, content string) (configstore.SectionVersion, error) {
+	return configstore.SectionVersion{ID: "version", Kind: kind, Name: name, Content: content}, nil
+}
+
+func (s stubConfigurationService) UpdateSectionVersion(_ context.Context, id, name, content string) (configstore.SectionVersion, error) {
+	return configstore.SectionVersion{ID: id, Name: name, Content: content}, nil
+}
+
+func (s stubConfigurationService) DeleteSectionVersion(_ context.Context, _ string) error {
+	return nil
+}
+
 func (s stubConfigurationService) PreviewBackup(_ context.Context, _ string) (configstore.BackupPreview, error) {
 	return configstore.BackupPreview{Valid: true, CurrentHash: s.document.Hash}, nil
 }
@@ -352,7 +376,7 @@ func TestConfigurationBackupMetadataRoutes(t *testing.T) {
 
 	exported := httptest.NewRecorder()
 	application.Handler().ServeHTTP(exported, httptest.NewRequest(
-		http.MethodGet, "/api/v1/config/backups/"+url.PathEscape(backup.ID)+"/export", nil))
+		http.MethodGet, "/api/v1/config/backups/"+url.PathEscape(backup.ID)+"/export?format=dae", nil))
 	if exported.Code != http.StatusOK || exported.Body.String() != "global {}" {
 		t.Fatalf("导出存档响应异常: status=%d body=%q", exported.Code, exported.Body.String())
 	}
@@ -377,7 +401,7 @@ func TestBackupDownloadNameRemovesHeaderAndPathCharacters(t *testing.T) {
 	name := backupDownloadName(configstore.Backup{
 		ID:   "20260801.dae",
 		Name: "../../危险:\r\n配置?",
-	})
+	}, ".dae")
 	if name != "_.._危险___配置_.dae" {
 		t.Fatalf("下载文件名 = %q", name)
 	}

@@ -41,11 +41,13 @@ import {
   type RoutingMatchKind,
   type SimpleRoutingMode,
 } from '../../utils/routing'
+import SectionVersionControls from './SectionVersionControls.vue'
 
 const content = defineModel<string>({ required: true })
 const message = useMessage()
 
 const routingRules = computed(() => parseRoutingRules(content.value))
+const routingBody = computed(() => readSectionBody(content.value, 'routing'))
 const groups = computed(() => parseGroups(content.value))
 const groupNames = computed(() => new Set(groups.value.map((group) => group.name)))
 const builtinOutbounds = new Set(['direct', 'block', 'must_direct', 'must_proxy'])
@@ -174,6 +176,10 @@ function openRoutingEditor() {
   routingEditorVisible.value = true
 }
 
+function applyVersion(body: string) {
+  content.value = setSectionBody(content.value, 'routing', body)
+}
+
 function changeRoutingEditorTab(value: string) {
   // 两种模式各自保留一份草稿。切换标签只是查看另一份草稿，
   // 不能因为用户想看一眼高级模式就把简单模式模板写进去。
@@ -211,6 +217,7 @@ function outboundType(outbound: string): 'success' | 'error' | 'info' | 'default
   <NCard title="路由规则" class="panel-card routing-card" data-testid="routing-card">
     <template #header-extra>
       <NSpace size="small" align="center">
+        <SectionVersionControls kind="routing" :body="routingBody" @apply="applyVersion" />
         <NTag size="small" :bordered="false">{{ routingRules.length }} 条</NTag>
         <NButton size="small" secondary @click="openRuleEditor()">
           <template #icon><NIcon><AddOutline /></NIcon></template>添加规则

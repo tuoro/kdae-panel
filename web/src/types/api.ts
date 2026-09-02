@@ -110,6 +110,25 @@ export interface ConfigBackup {
   sourcePath: string
   name?: string
   note?: string
+  dnsVersions: number
+  routingVersions: number
+}
+
+export type ConfigSectionKind = 'dns' | 'routing'
+
+export interface ConfigSectionVersion {
+  id: string
+  kind: ConfigSectionKind
+  name: string
+  content: string
+  hash: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ConfigSectionVersions {
+  schemaVersion: number
+  versions: ConfigSectionVersion[]
 }
 
 export interface ConfigDiffLine {
@@ -125,6 +144,8 @@ export interface ConfigBackupPreview {
   currentHash: string
   currentPresent: boolean
   same: boolean
+  configSame: boolean
+  versionsSame: boolean
   valid: boolean
   validationError?: string
   diff: ConfigDiffLine[]

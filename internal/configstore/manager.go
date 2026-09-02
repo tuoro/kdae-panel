@@ -68,13 +68,15 @@ type SaveResult struct {
 }
 
 type Backup struct {
-	ID         string    `json:"id"`
-	Hash       string    `json:"hash"`
-	Size       int64     `json:"size"`
-	CreatedAt  time.Time `json:"createdAt"`
-	SourcePath string    `json:"sourcePath"`
-	Name       string    `json:"name,omitempty"`
-	Note       string    `json:"note,omitempty"`
+	ID              string    `json:"id"`
+	Hash            string    `json:"hash"`
+	Size            int64     `json:"size"`
+	CreatedAt       time.Time `json:"createdAt"`
+	SourcePath      string    `json:"sourcePath"`
+	Name            string    `json:"name,omitempty"`
+	Note            string    `json:"note,omitempty"`
+	DNSVersions     int       `json:"dnsVersions"`
+	RoutingVersions int       `json:"routingVersions"`
 }
 
 // BackupExport 是配置存档的原始导出内容。
@@ -91,6 +93,8 @@ type BackupPreview struct {
 	CurrentHash     string     `json:"currentHash"`
 	CurrentPresent  bool       `json:"currentPresent"`
 	Same            bool       `json:"same"`
+	ConfigSame      bool       `json:"configSame"`
+	VersionsSame    bool       `json:"versionsSame"`
 	Valid           bool       `json:"valid"`
 	ValidationError string     `json:"validationError,omitempty"`
 	Diff            []DiffLine `json:"diff"`
@@ -201,10 +205,15 @@ func (m *Manager) Validate(ctx context.Context, content string) error {
 func (m *Manager) Save(ctx context.Context, content, expectedHash string, apply bool) (SaveResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.saveUnlocked(ctx, content, expectedHash, apply)
+	return m.saveUnlocked(ctx, content, expectedHash, apply, nil)
 }
 
-func (m *Manager) saveUnlocked(ctx context.Context, content, expectedHash string, apply bool) (SaveResult, error) {
+func (m *Manager) saveUnlocked(
+	ctx context.Context,
+	content, expectedHash string,
+	apply bool,
+	backupVersions *versionSnapshot,
+) (SaveResult, error) {
 
 	newContent := []byte(content)
 	if len(newContent) > MaxConfigBytes {
@@ -267,7 +276,7 @@ func (m *Manager) saveUnlocked(ctx context.Context, content, expectedHash string
 
 	backupID := ""
 	if existed {
-		backupID, err = m.createBackup(oldContent)
+		backupID, err = m.createBackup(oldContent, backupVersions)
 		if err != nil {
 			return SaveResult{}, err
 		}
@@ -330,14 +339,19 @@ func (m *Manager) ListBackups(_ context.Context) ([]Backup, error) {
 		if err != nil {
 			return nil, err
 		}
+		versions, err := m.readVersionSnapshot(m.backupVersionsPath(entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		dnsVersions, routingVersions, err := versionCounts(versions)
+		if err != nil {
+			return nil, err
+		}
 		backups = append(backups, Backup{
-			ID:         entry.Name(),
-			Hash:       hashBytes(content),
-			Size:       info.Size(),
-			CreatedAt:  info.ModTime().UTC(),
-			SourcePath: m.entryPath,
-			Name:       metadata.Name,
-			Note:       metadata.Note,
+			ID: entry.Name(), Hash: hashBytes(content), Size: info.Size() + int64(len(versions.content)),
+			CreatedAt: info.ModTime().UTC(), SourcePath: m.entryPath,
+			Name: metadata.Name, Note: metadata.Note,
+			DNSVersions: dnsVersions, RoutingVersions: routingVersions,
 		})
 	}
 	sort.Slice(backups, func(i, j int) bool {
@@ -364,7 +378,7 @@ func (m *Manager) CreateBackup(_ context.Context, name, note string) (Backup, er
 	if !existed {
 		return Backup{}, ErrNotFound
 	}
-	id, err := m.createBackup(content)
+	id, err := m.createBackup(content, nil)
 	if err != nil {
 		return Backup{}, err
 	}
@@ -413,14 +427,21 @@ func (m *Manager) DeleteBackup(_ context.Context, backupID string) error {
 	if !info.Mode().IsRegular() {
 		return ErrNotFound
 	}
-	if err := os.Remove(path); err != nil {
-		return fmt.Errorf("删除配置存档: %w", err)
+	if err := m.removeBackupFiles(backupID); err != nil {
+		return err
 	}
-	// 内容已经删除，残留元数据不会被列出；尽力同步清理即可。
-	_ = os.Remove(m.backupMetadataPath(backupID))
 	if err := syncDirectory(m.backupDir); err != nil {
 		return fmt.Errorf("同步配置备份目录: %w", err)
 	}
+	return nil
+}
+
+func (m *Manager) removeBackupFiles(backupID string) error {
+	if err := os.Remove(filepath.Join(m.backupDir, backupID)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("删除配置存档: %w", err)
+	}
+	_ = os.Remove(m.backupMetadataPath(backupID))
+	_ = os.Remove(m.backupVersionsPath(backupID))
 	return nil
 }
 
@@ -459,12 +480,27 @@ func (m *Manager) PreviewBackup(ctx context.Context, backupID string) (BackupPre
 	if err != nil {
 		return BackupPreview{}, err
 	}
+	currentVersions, err := m.readVersionSnapshot(m.sectionVersionsPath())
+	if err != nil {
+		return BackupPreview{}, err
+	}
+	backupVersions, err := m.readVersionSnapshot(m.backupVersionsPath(backupID))
+	if err != nil {
+		return BackupPreview{}, err
+	}
+	versionsSame, err := versionSnapshotsEqual(currentVersions, backupVersions)
+	if err != nil {
+		return BackupPreview{}, err
+	}
 	lines, truncated := compareConfigLines(currentContent, backupContent)
+	configSame := currentPresent && currentHash == backup.Hash
 	preview := BackupPreview{
 		Backup:         backup,
 		CurrentHash:    currentHash,
 		CurrentPresent: currentPresent,
-		Same:           currentPresent && currentHash == backup.Hash,
+		Same:           configSame && versionsSame,
+		ConfigSame:     configSame,
+		VersionsSame:   versionsSame,
 		Diff:           lines,
 		DiffTruncated:  truncated,
 	}
@@ -496,7 +532,24 @@ func (m *Manager) Restore(ctx context.Context, backupID, expectedHash string, ap
 		}
 		return SaveResult{}, err
 	}
-	return m.saveUnlocked(ctx, string(content), expectedHash, apply)
+	currentVersions, err := m.readVersionSnapshot(m.sectionVersionsPath())
+	if err != nil {
+		return SaveResult{}, err
+	}
+	targetVersions, err := m.readVersionSnapshot(m.backupVersionsPath(backupID))
+	if err != nil {
+		return SaveResult{}, err
+	}
+	if err := m.writeVersionSnapshot(m.sectionVersionsPath(), targetVersions); err != nil {
+		return SaveResult{}, err
+	}
+	result, saveErr := m.saveUnlocked(ctx, string(content), expectedHash, apply, &currentVersions)
+	if saveErr != nil {
+		if restoreErr := m.writeVersionSnapshot(m.sectionVersionsPath(), currentVersions); restoreErr != nil {
+			return result, fmt.Errorf("%w；恢复原配置版本失败: %v", saveErr, restoreErr)
+		}
+	}
+	return result, saveErr
 }
 
 func validBackupID(backupID string) bool {
@@ -598,11 +651,20 @@ func (m *Manager) backupExportByID(backupID string) (BackupExport, error) {
 	if err != nil {
 		return BackupExport{}, err
 	}
+	versions, err := m.readVersionSnapshot(m.backupVersionsPath(backupID))
+	if err != nil {
+		return BackupExport{}, err
+	}
+	dnsVersions, routingVersions, err := versionCounts(versions)
+	if err != nil {
+		return BackupExport{}, err
+	}
 	return BackupExport{
 		Backup: Backup{
-			ID: backupID, Hash: hashBytes(content), Size: info.Size(),
+			ID: backupID, Hash: hashBytes(content), Size: info.Size() + int64(len(versions.content)),
 			CreatedAt: info.ModTime().UTC(), SourcePath: m.entryPath,
 			Name: metadata.Name, Note: metadata.Note,
+			DNSVersions: dnsVersions, RoutingVersions: routingVersions,
 		},
 		Content: content,
 	}, nil
@@ -677,11 +739,22 @@ func (m *Manager) writeCandidate(content []byte, mode os.FileMode) (string, func
 	return path, cleanup, nil
 }
 
-func (m *Manager) createBackup(content []byte) (string, error) {
+func (m *Manager) createBackup(content []byte, versions *versionSnapshot) (string, error) {
 	if err := os.MkdirAll(m.backupDir, 0700); err != nil {
 		return "", fmt.Errorf("创建配置备份目录: %w", err)
 	}
-	if err := m.pruneBackups(int64(len(content))); err != nil {
+	if versions == nil {
+		current, err := m.readVersionSnapshot(m.sectionVersionsPath())
+		if err != nil {
+			return "", err
+		}
+		versions = &current
+	}
+	reservedBytes := int64(len(content))
+	if versions.present {
+		reservedBytes += int64(len(versions.content))
+	}
+	if err := m.pruneBackups(reservedBytes); err != nil {
 		return "", err
 	}
 	id := m.now().UTC().Format("20060102T150405.000000000Z") + "-" + hashBytes(content)[:12] + ".dae"
@@ -703,6 +776,12 @@ func (m *Manager) createBackup(content []byte) (string, error) {
 	if err := file.Close(); err != nil {
 		_ = os.Remove(path)
 		return "", fmt.Errorf("关闭配置备份: %w", err)
+	}
+	if versions.present {
+		if err := m.writeVersionSnapshot(m.backupVersionsPath(id), *versions); err != nil {
+			_ = os.Remove(path)
+			return "", err
+		}
 	}
 	if err := syncDirectory(m.backupDir); err != nil {
 		return "", fmt.Errorf("同步配置备份目录: %w", err)
@@ -786,6 +865,12 @@ func (m *Manager) pruneBackups(reservedBytes int64) error {
 		}
 		backups = append(backups, backupFile{id: entry.Name(), size: info.Size(), createdAt: info.ModTime()})
 		total += info.Size()
+		if versionInfo, statErr := os.Stat(m.backupVersionsPath(entry.Name())); statErr == nil && versionInfo.Mode().IsRegular() {
+			backups[len(backups)-1].size += versionInfo.Size()
+			total += versionInfo.Size()
+		} else if statErr != nil && !os.IsNotExist(statErr) {
+			return fmt.Errorf("读取备份版本信息 %s: %w", entry.Name(), statErr)
+		}
 	}
 	sort.Slice(backups, func(i, j int) bool {
 		return backups[i].createdAt.Before(backups[j].createdAt)
@@ -800,6 +885,7 @@ func (m *Manager) pruneBackups(reservedBytes int64) error {
 			return fmt.Errorf("清理旧备份 %s: %w", oldest.id, err)
 		}
 		_ = os.Remove(m.backupMetadataPath(oldest.id))
+		_ = os.Remove(m.backupVersionsPath(oldest.id))
 		backups = backups[1:]
 		total -= oldest.size
 		removed = true

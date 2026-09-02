@@ -61,8 +61,14 @@ type ConfigurationService interface {
 	UpdateBackup(ctx context.Context, backupID, name, note string) (configstore.Backup, error)
 	DeleteBackup(ctx context.Context, backupID string) error
 	ExportBackup(ctx context.Context, backupID string) (configstore.BackupExport, error)
+	ExportBackupPackage(ctx context.Context, backupID string) (configstore.BackupPackageExport, error)
+	ImportBackup(ctx context.Context, payload []byte, name, note string) (configstore.Backup, error)
 	PreviewBackup(ctx context.Context, backupID string) (configstore.BackupPreview, error)
 	Restore(ctx context.Context, backupID, expectedHash string, apply bool) (configstore.SaveResult, error)
+	ListSectionVersions(ctx context.Context) (configstore.SectionVersions, error)
+	CreateSectionVersion(ctx context.Context, kind configstore.SectionKind, name, content string) (configstore.SectionVersion, error)
+	UpdateSectionVersion(ctx context.Context, id, name, content string) (configstore.SectionVersion, error)
+	DeleteSectionVersion(ctx context.Context, id string) error
 }
 
 type Dependencies struct {
