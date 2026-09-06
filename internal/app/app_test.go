@@ -700,10 +700,12 @@ type stubProbeService struct {
 	results []netprobe.Result
 	err     error
 	targets []netprobe.Target
+	calls   int
 }
 
 func (s *stubProbeService) Probe(_ context.Context, targets []netprobe.Target) ([]netprobe.Result, error) {
 	s.targets = targets
+	s.calls++
 	return s.results, s.err
 }
 
