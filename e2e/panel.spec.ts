@@ -1288,10 +1288,24 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await page.goto('/diagnostics')
     await expect(page.getByRole('heading', { name: '故障诊断', level: 2 })).toBeVisible()
     await expect(page.getByText('基础检查通过，但有需要确认的项目')).toBeVisible()
-    await expect(page.getByText('当前配置已通过 dae validate')).toBeVisible()
+    // 需要处理的两项（注意 + 未知）完整展开；七项正常收成一行，排障时不必先扫过它们
+    await expect(page.locator('.diagnostic-item')).toHaveCount(2)
     await expect(page.getByText('如果路由使用 geosite，请先到 Geo 数据页更新数据')).toBeVisible()
-    await expect(page.locator('.diagnostic-item')).toHaveCount(6)
-    await expectCardsAligned(page.locator('.diagnostic-item'))
+    // 通过的检查默认收起，且行内只留标题——"当前配置 / 当前配置已通过 dae validate"
+    // 是同义反复，占着宽度不给信息
+    await expect(page.getByRole('button', { name: '当前配置' })).toHaveCount(0)
+    await page.getByRole('button', { name: /4 项检查正常/ }).click()
+    await expect(page.getByRole('button', { name: '当前配置' })).toBeVisible()
+    await expect(page.getByText('当前配置已通过 dae validate')).toHaveCount(0)
+    // 明细仍然逐项可展开：收起是为了不占版面，不是藏起来
+    await page.getByRole('button', { name: '当前配置' }).click()
+    await expect(page.getByText('路径：/etc/dae/config.dae')).toBeVisible()
+    await page.getByRole('button', { name: /4 项检查正常/ }).click()
+    // 顶部计数是筛选器
+    await page.locator('.diagnostics-count').filter({ hasText: '注意' }).click()
+    await expect(page.locator('.diagnostic-item')).toHaveCount(1)
+    await page.getByRole('button', { name: '显示全部' }).click()
+    await expect(page.locator('.diagnostic-item')).toHaveCount(2)
     await capture(page, 'diagnostics.png', 1600, 1120)
   })
 
@@ -1437,9 +1451,9 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
 
     await page.goto('/diagnostics')
     await expect(page.getByRole('heading', { name: '故障诊断', level: 2 })).toBeVisible()
-    await expect(page.locator('.diagnostic-item')).toHaveCount(6)
+    await expect(page.locator('.diagnostic-item')).toHaveCount(2)
     const diagnosticsPageBox = await page.locator('.diagnostics-page').boundingBox()
-    const finalDiagnosticBox = await page.locator('.diagnostic-item').last().boundingBox()
+    const finalDiagnosticBox = await page.locator('.diagnostics-healthy').boundingBox()
     const fullLogsButton = page.getByRole('button', { name: '查看完整运行日志' })
     const fullLogsButtonBox = await fullLogsButton.boundingBox()
     expect(diagnosticsPageBox).not.toBeNull()

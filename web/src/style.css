@@ -34,6 +34,28 @@
   --border-soft: rgba(148, 163, 184, 0.09);
   --border-strong: rgba(148, 163, 184, 0.5);
 
+  /* 字号只有这五档。此前正文区间挤了 10/11/12/13/14/15 六档，相邻差 1px
+     肉眼分不出层级，只会觉得密——层级要靠拉开对比，不是靠多分几档。
+     用语义名而不是字面数字：review 时能看出"这里是正文所以 13"，
+     而不是猜 12 和 13 的区别是有意还是手滑。 */
+  --text-display: 36px;
+  --text-title: 20px;
+  --text-heading: 15px;
+  --text-body: 13px;
+  --text-meta: 11px;
+
+  /* 间距只用这六档。现有的 7/9/11/13 等奇数值是逐个手调出来的，归到最近档。 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* 圆角统一 6px；只有 brand-mark 那类大色块用 8px。 */
+  --radius: 6px;
+  --radius-lg: 8px;
+
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --page-padding: 28px;
@@ -535,14 +557,16 @@ textarea {
 }
 
 .diagnostics-summary {
-  min-height: 112px;
+  min-height: 96px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 20px;
+  gap: var(--space-5);
+  padding: var(--space-5);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
+  /* 左侧色条表达的是整体状态，属于语义色的职责，不该由强调色兜底 */
+  border-left: 3px solid var(--text-faint);
+  border-radius: var(--radius);
   background: var(--bg-raised);
 }
 
@@ -558,11 +582,21 @@ textarea {
   border-left-color: var(--ok);
 }
 
+.diagnostics-summary-unknown {
+  border-left-color: var(--text-faint);
+}
+
 .diagnostics-summary > div {
   display: grid;
   grid-template-columns: max-content 1fr;
-  align-items: center;
-  gap: 7px 10px;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-2);
+}
+
+.diagnostics-summary > div > strong {
+  color: var(--text-bright);
+  font-size: var(--text-heading);
+  font-weight: 650;
 }
 
 .diagnostics-summary > div > .n-text {
@@ -572,7 +606,7 @@ textarea {
 .diagnostics-summary dl {
   display: grid;
   grid-template-columns: repeat(4, minmax(52px, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
   margin: 0;
 }
 
@@ -584,73 +618,278 @@ textarea {
 
 .diagnostics-summary dt {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 .diagnostics-summary dd {
-  margin: 2px 0 0;
-  font-size: 18px;
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-heading);
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
-.diagnostics-section h3 {
-  margin: 0 0 10px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 650;
-  text-transform: uppercase;
-}
-
+/* 诊断项：单列全宽。原来按分类分两栏，组内不足两项就右边留一大块空白，
+   九项里有五项如此。左侧色条按严重度着色，扫一眼就知道哪些要处理。 */
 .diagnostic-item {
-  min-height: 176px;
+  padding: var(--space-5) var(--space-5);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
 }
 
-.diagnostic-item-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
+.diagnostic-item.level-error { border-left-color: var(--danger); }
+.diagnostic-item.level-warning { border-left-color: var(--warn); }
+.diagnostic-item.level-unknown { border-left-color: var(--text-faint); }
+.diagnostic-item.level-ok { border-left-color: var(--ok); }
 
-.diagnostic-item-head > div {
+.diagnostic-item header {
   min-width: 0;
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
-.diagnostic-item-head span {
+.diagnostic-item header strong {
+  color: var(--text-bright);
+  font-size: var(--text-heading);
+  font-weight: 650;
+}
+
+/* 状态是状态，不需要一个方块来宣告它是状态——语义色的一个词就够了 */
+.diagnostic-level {
+  font-size: var(--text-meta);
+  font-weight: 600;
+}
+
+.diagnostic-level.level-ok { color: var(--ok); }
+.diagnostic-level.level-warning { color: var(--warn); }
+.diagnostic-level.level-error { color: var(--danger); }
+.diagnostic-level.level-unknown { color: var(--text-faint); }
+
+/* 分类是元信息，不配拥有一个 chip */
+.diagnostic-category {
+  color: var(--text-faint);
+  font-size: var(--text-meta);
+}
+
+.diagnostic-summary-text {
+  margin: var(--space-2) 0 0;
   color: var(--text-muted);
+  font-size: var(--text-body);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 
+/* 明细用一整块下沉底色收拢，内部不画线。逐行加分隔线在十几条的时候会变成
+   一屏横线，密到没法读——分组该靠间距和底色，线只留给真正的边界。
+   等宽数据不必和正文一样大，但需要更多行距。 */
 .diagnostic-details {
-  margin: 14px 0 0;
-  padding: 0;
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  display: grid;
+  gap: var(--space-1);
   list-style: none;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-meta);
+  line-height: 1.7;
+  background: var(--bg-deep);
+  border-radius: var(--radius);
 }
 
 .diagnostic-details li {
-  padding: 5px 0;
-  border-bottom: 1px solid var(--border-soft);
+  min-width: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 
+.diagnostic-more {
+  margin-top: var(--space-2);
+}
+
+/* 建议就是一段话。原来它同时有青色竖条、青色淡底、青色粗体标签——
+   三重强调同一件事，而里面并没有任何可点的东西。 */
 .diagnostic-suggestion {
-  margin-top: 14px;
-  padding: 9px 11px;
-  border-left: 2px solid var(--accent);
-  background: var(--accent-wash);
-  line-height: 1.55;
+  margin: var(--space-4) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  line-height: 1.65;
+  text-wrap: pretty;
 }
 
 .diagnostic-suggestion span {
-  margin-right: 8px;
+  margin-right: var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--text-meta);
+}
+
+/* 顶部四个计数是筛选器 */
+.diagnostics-count {
+  min-width: 56px;
+  padding: var(--space-2) var(--space-3);
+  display: block;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  cursor: pointer;
+}
+
+.diagnostics-count:hover:not(:disabled) {
+  background: var(--border-soft);
+}
+
+.diagnostics-count.active {
+  background: var(--accent-wash);
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+/* 计数为零的项不该和有值的项抢同样的注意力 */
+.diagnostics-count:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.diagnostics-count:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.diagnostics-filter-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+/* 正常项：默认收成一行，展开才是紧凑列表。都正常时本就不必逐张看。 */
+.diagnostics-healthy {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+
+.diagnostics-healthy-toggle {
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.diagnostics-healthy-toggle:hover {
+  background: var(--border-soft);
+}
+
+.diagnostics-healthy-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.diagnostics-healthy-toggle strong,
+.diagnostics-healthy-row strong {
+  min-width: 0;
+  color: var(--text-bright);
+  font-size: var(--text-body);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diagnostics-healthy-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.diagnostics-healthy-hint {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+}
+
+.diagnostics-healthy-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text-faint);
+  transition: transform 0.15s ease;
+}
+
+.diagnostics-healthy-list li.expanded .diagnostics-healthy-chevron {
+  transform: rotate(180deg);
+}
+
+.diagnostics-healthy-row.expandable:hover .diagnostics-healthy-chevron {
   color: var(--accent);
-  font-size: 11px;
-  font-weight: 700;
+}
+
+.diagnostics-healthy-list {
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1) var(--space-3);
+  list-style: none;
+  border-top: 1px solid var(--border-soft);
+}
+
+.diagnostics-healthy-list li {
+  min-width: 0;
+}
+
+/* 展开的一项占满整行，明细才有地方铺开，也不会把邻列顶歪 */
+.diagnostics-healthy-list li.expanded {
+  grid-column: 1 / -1;
+}
+
+.diagnostics-healthy-row {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+}
+
+.diagnostics-healthy-row.expandable {
+  cursor: pointer;
+}
+
+.diagnostics-healthy-row.expandable:hover {
+  background: var(--border-soft);
+}
+
+.diagnostics-healthy-row:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.diagnostics-healthy-list .diagnostic-details {
+  margin: var(--space-1) 0 var(--space-3);
 }
 
 .diagnostics-footer-action {
