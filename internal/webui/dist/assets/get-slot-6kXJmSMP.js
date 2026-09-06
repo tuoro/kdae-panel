@@ -1,1 +1,0 @@
-function e(e,t=`default`,n=[]){let r=e.$slots[t];return r===void 0?n:r()}export{e as t};
