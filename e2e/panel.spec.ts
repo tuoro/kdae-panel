@@ -125,18 +125,27 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await page.locator('.n-form-item', { hasText: '确认密码' }).locator('input').fill(PASSWORD)
     await page.getByRole('button', { name: '完成初始化' }).click()
     // 初始化成功即已登录，落在运行概览
-    await expect(page.getByRole('heading', { name: '运行状态' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '运行概览' })).toBeVisible()
   })
 
   await test.step('概览呈现 systemd 桩给出的健康状态', async () => {
-    const metrics = page.locator('.metric-card')
-    await expect(metrics).toHaveCount(3)
-    await expect(metrics.first()).toContainText('运行中')
-    await expectCardsAligned(metrics)
-    await expect(page.getByText('本次运行时长', { exact: true })).toBeVisible()
-    await expect(page.getByText('随系统启动', { exact: true })).toBeVisible()
-    await expect(page.getByText('dae version v1.0.6')).toBeVisible()
-    await expectCardsAligned(page.locator('.equal-height-grid .panel-card'))
+    const strip = page.locator('.dash-service')
+    await expect(strip).toContainText('dae 运行中')
+    await expect(strip).toContainText('开机自启')
+    // 版本号去掉了 "dae version " 前缀，窄栏左侧已经写了 dae
+    await expect(strip).toContainText('v1.0.6')
+    await expect(strip.getByRole('button', { name: '无损重载' })).toBeVisible()
+    // 出站健康与需要注意并排，必须共享底边
+    await expectCardsAligned(page.locator('.dash-columns > .dash-card'))
+  })
+
+  await test.step('无连接流水时概览不把"测不到"画成零', async () => {
+    // journalctl 桩返回空日志：计数是 0，但必须明说面板还没采到任何记录，
+    // 出站健康也不能凭空编出一个"当前节点"。
+    await expect(page.locator('.dash-traffic-value')).toContainText('0')
+    await expect(page.getByText('面板尚未采集到任何连接记录')).toBeVisible()
+    await expect(page.locator('.dash-outbounds')).toHaveCount(0)
+    await expect(page.getByText('还没有分组')).toBeVisible()
   })
 
   await test.step('Geo 数据可从资源管理进入并持久化自定义来源', async () => {
@@ -569,16 +578,20 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
       await page.route(capabilityPattern, maskCapabilityPath)
     }
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: '运行状态' })).toBeVisible()
-    await expect(page.getByText('运行中', { exact: true })).toBeVisible()
-    await expect(page.getByText('dae version v1.0.6')).toBeVisible()
-    await expect(page.locator('.metric-card .n-skeleton')).toHaveCount(0)
-    await page.getByRole('button', { name: '暂停' }).click()
+    await expect(page.getByRole('heading', { name: '运行概览' })).toBeVisible()
+    await expect(page.locator('.dash-service')).toContainText('dae 运行中')
+    await expect(page.locator('.dash-service')).toContainText('v1.0.6')
+    await expect(page.locator('.dash-card .n-skeleton')).toHaveCount(0)
+    // 暂停等破坏性操作收进窄栏的"更多"菜单，避免与"无损重载"平起平坐
+    await page.getByRole('button', { name: '更多服务操作' }).click()
+    await page.locator('.n-dropdown-option').filter({ hasText: '暂停' }).click()
     await page.getByRole('button', { name: '确认暂停' }).click()
-    await expect(page.getByText('dae 已暂停', { exact: true })).toBeVisible()
+    await expect(page.locator('.dash-service')).toContainText('dae 已暂停')
+    // 提示条只解释暂停意味着什么，状态本身由窄栏陈述，不重复告警
     await expect(page.getByText('代理流量处理已停止，但 dae 进程仍在运行；点击“无损重载”即可恢复。')).toBeVisible()
     await page.getByRole('button', { name: '无损重载' }).click()
-    await expect(page.getByText('dae 已暂停', { exact: true })).toHaveCount(0)
+    await expect(page.locator('.service-suspended-alert')).toHaveCount(0)
+    await expect(page.locator('.dash-service')).toContainText('dae 运行中')
     await capture(page, 'dashboard.png', 1600, 900)
     if (UPDATE_SCREENSHOTS) {
       await page.unroute(capabilityPattern, maskCapabilityPath)
@@ -1517,13 +1530,16 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     })
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: '运行状态' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '运行概览' })).toBeVisible()
     const suspendedAlert = page.locator('.service-suspended-alert')
     await expect(suspendedAlert).toBeVisible()
     await expect(suspendedAlert.getByText('代理流量处理已停止，但 dae 进程仍在运行；点击“无损重载”即可恢复。')).toBeVisible()
     expect(await suspendedAlert.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
-    const mobileServiceCard = page.locator('.panel-card').filter({ hasText: '服务控制' })
-    await expect(mobileServiceCard.getByRole('button', { name: /暂停/ })).toBeDisabled()
+    // 暂停已在暂停态下不可再点：操作收进窄栏的"更多"菜单
+    await page.getByRole('button', { name: '更多服务操作' }).click()
+    const suspendOption = page.locator('.n-dropdown-option').filter({ hasText: '暂停' })
+    await expect(suspendOption.locator('.n-dropdown-option-body')).toHaveClass(/--disabled/)
+    await page.keyboard.press('Escape')
     await page.getByRole('button', { name: '无损重载' }).click()
     await expect(suspendedAlert).toHaveCount(0)
     overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
@@ -1539,6 +1555,6 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await page.getByPlaceholder('admin').fill('admin')
     await page.getByPlaceholder('输入管理员密码').fill(PASSWORD)
     await page.getByRole('button', { name: '登录', exact: true }).click()
-    await expect(page.getByRole('heading', { name: '运行状态' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: '运行概览' })).toBeVisible()
   })
 })

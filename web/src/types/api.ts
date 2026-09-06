@@ -373,6 +373,10 @@ export interface LatencyResult {
   resolvedIp?: string
   method?: 'tcp' | 'icmp'
   error?: string
+  /** 这条结果是什么时候测的；复用缓存时是原来那次的时刻，不会刷成现在。 */
+  probedAt?: string
+  /** true 表示复用了服务端缓存，本次没有真的发包。 */
+  cached?: boolean
 }
 
 export interface SubscriptionNode {
@@ -420,6 +424,12 @@ export interface ConnectionEndpoint {
   count: number
 }
 
+/** 一段等长区间内的新建连接数；at 是区间起点。空桶会被保留为 0。 */
+export interface ConnectionBucket {
+  at: string
+  count: number
+}
+
 export interface ConnectionFacet {
   id: string
   label: string
@@ -454,6 +464,13 @@ export interface ConnectionsResponse {
     windowClients: number
     windowTargets: number
   }
+  series: ConnectionBucket[]
+  /**
+   * 曲线可信区间的起点。事件存储只从面板开始轮询才积累，早于这个时刻的桶
+   * 是"面板不知道"而非"当时没有流量"，必须画成空白而不是零。
+   * 存储为空时缺省，代表整个窗口都无从判断。
+   */
+  seriesSince?: string
   facets: ConnectionFacets
   endpoints: ConnectionEndpoint[]
   entries: ConnectionEvent[]

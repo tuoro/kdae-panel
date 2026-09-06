@@ -397,3 +397,123 @@ func TestConnectionsEndpointRequiresAuthentication(t *testing.T) {
 		t.Fatalf("已登录状态码 = %d，响应 = %s", authorized.Code, authorized.Body.String())
 	}
 }
+
+func TestBuildConnectionSeriesKeepsEmptyBuckets(t *testing.T) {
+	end := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	window := 10 * time.Minute
+	events := []daeconn.Event{
+		{Timestamp: end.Add(-10 * time.Minute)}, // 窗口起点，落进第一个桶
+		{Timestamp: end.Add(-9 * time.Minute)},  // 同样在第一个桶
+		{Timestamp: end.Add(-time.Minute)},      // 最后一个桶
+		{Timestamp: end.Add(-11 * time.Minute)}, // 早于窗口，忽略
+		{Timestamp: end},                        // 窗口右端开区间，忽略
+	}
+	series := buildConnectionSeries(events, end, window, 5)
+	if len(series) != 5 {
+		t.Fatalf("桶数 = %d，want 5", len(series))
+	}
+	counts := make([]int, len(series))
+	for index, bucket := range series {
+		counts[index] = bucket.Count
+		expectedAt := end.Add(-window + time.Duration(index)*(window/5))
+		if !bucket.At.Equal(expectedAt) {
+			t.Fatalf("第 %d 个桶起点 = %s，want %s", index, bucket.At, expectedAt)
+		}
+	}
+	// 中间三个桶必须留下来且为 0：省略它们会让折线把安静期连成斜坡。
+	if counts[0] != 2 || counts[1] != 0 || counts[2] != 0 || counts[3] != 0 || counts[4] != 1 {
+		t.Fatalf("分桶计数 = %v，want [2 0 0 0 1]", counts)
+	}
+}
+
+func TestBuildConnectionSeriesClampsIndivisibleWindow(t *testing.T) {
+	end := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	// 7 纳秒分 3 个桶：每桶 2 纳秒，末尾 1 纳秒除不尽，必须被夹进最后一个桶。
+	series := buildConnectionSeries([]daeconn.Event{{Timestamp: end.Add(-1)}}, end, 7, 3)
+	if len(series) != 3 {
+		t.Fatalf("桶数 = %d，want 3", len(series))
+	}
+	if series[2].Count != 1 {
+		t.Fatalf("除不尽的尾部没有夹进最后一个桶: %+v", series)
+	}
+}
+
+func TestBuildConnectionSeriesRejectsUnusableShape(t *testing.T) {
+	end := time.Now().UTC()
+	if series := buildConnectionSeries(nil, end, 0, 60); series != nil {
+		t.Fatalf("零窗口应返回 nil，得到 %+v", series)
+	}
+	if series := buildConnectionSeries(nil, end, time.Minute, 0); series != nil {
+		t.Fatalf("零桶数应返回 nil，得到 %+v", series)
+	}
+}
+
+func TestConnectionSeriesSinceReportsOldestKnownEvent(t *testing.T) {
+	if since := connectionSeriesSince(nil); since != nil {
+		t.Fatalf("存储为空时应返回 nil，得到 %s", since)
+	}
+	oldest := time.Date(2026, 9, 7, 11, 0, 0, 0, time.UTC)
+	events := []daeconn.Event{
+		{Timestamp: oldest.Add(time.Hour)},
+		{Timestamp: oldest},
+		{Timestamp: oldest.Add(time.Minute)},
+	}
+	since := connectionSeriesSince(events)
+	if since == nil || !since.Equal(oldest) {
+		t.Fatalf("覆盖起点 = %v，want %s", since, oldest)
+	}
+}
+
+func TestConnectionsEndpointReturnsSeriesCoveringWindow(t *testing.T) {
+	now := time.Now().UTC()
+	hostService := &stubHostService{logs: []host.LogEntry{
+		{Timestamp: now.Add(-time.Minute), Message: `level=info msg="192.0.2.1:1 <-> a.example:443" ip=203.0.113.1:443 network=tcp4 outbound=proxy`},
+		{Timestamp: now.Add(-2 * time.Minute), Message: `level=info msg="192.0.2.2:2 <-> b.example:443" ip=203.0.113.2:443 network=tcp4 outbound=proxy`},
+	}}
+	application, err := NewWithDependencies(Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)), Dependencies{
+		Dae: stubDaeService{}, Host: hostService,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/connections?window=15&buckets=15", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d，响应 = %s", recorder.Code, recorder.Body.String())
+	}
+	var response connectionsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Series) != 15 {
+		t.Fatalf("桶数 = %d，want 15", len(response.Series))
+	}
+	total := 0
+	for _, bucket := range response.Series {
+		total += bucket.Count
+	}
+	// 曲线的总量必须和摘要一致，否则页面上两个数会互相打架。
+	if total != response.Summary.WindowEvents {
+		t.Fatalf("曲线总量 %d 与 windowEvents %d 不一致", total, response.Summary.WindowEvents)
+	}
+	if response.SeriesSince == nil {
+		t.Fatal("有事件时必须给出覆盖起点，否则前端无法区分未覆盖与真的没流量")
+	}
+}
+
+func TestConnectionsEndpointRejectsInvalidBuckets(t *testing.T) {
+	application, err := NewWithDependencies(Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)), Dependencies{
+		Dae: stubDaeService{}, Host: &stubHostService{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"0", "241", "-1", "invalid"} {
+		request := httptest.NewRequest(http.MethodGet, "/api/v1/connections?buckets="+value, nil)
+		recorder := httptest.NewRecorder()
+		application.Handler().ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("buckets=%q 状态码 = %d，响应 = %s", value, recorder.Code, recorder.Body.String())
+		}
+	}
+}

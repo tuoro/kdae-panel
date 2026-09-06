@@ -80,15 +80,25 @@ func (t Target) validate() error {
 	return nil
 }
 
+// ValidateBatch 只检查整批目标的数量限制。单个目标是否合法不在这里拦截——
+// Probe 会把它变成那一条结果上的错误,不牵连同批其他目标。调用方在决定
+// 是否走缓存之前需要先做这层校验,因此单独暴露出来,避免两处各写一份规则。
+func ValidateBatch(targets []Target) error {
+	if len(targets) == 0 {
+		return errors.New("探测目标不能为空")
+	}
+	if len(targets) > MaxTargets {
+		return fmt.Errorf("探测目标数量超过 %d 上限", MaxTargets)
+	}
+	return nil
+}
+
 // Probe 并发探测全部目标并按入参顺序返回结果。
 // 并发上限属于 Prober 实例,因此多个并发请求共享同一份出站预算。
 // 单个目标不合法只影响它自己的那条结果,不会让整批探测失败。
 func (p *Prober) Probe(ctx context.Context, targets []Target) ([]Result, error) {
-	if len(targets) == 0 {
-		return nil, errors.New("探测目标不能为空")
-	}
-	if len(targets) > MaxTargets {
-		return nil, fmt.Errorf("探测目标数量超过 %d 上限", MaxTargets)
+	if err := ValidateBatch(targets); err != nil {
+		return nil, err
 	}
 
 	results := make([]Result, len(targets))

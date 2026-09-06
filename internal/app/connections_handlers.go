@@ -24,10 +24,14 @@ const (
 	connectionsMaxEntries    = 2000
 	connectionsDefaultWindow = 15 * time.Minute
 	connectionsMaxWindow     = 24 * time.Hour
-	connectionFacetLimit     = 200
-	kdaeDebugLogRevision     = 1148
-	connectionLogLevelRetry  = 30 * time.Second
-	minimumCommitIDLength    = 6
+	// 曲线分桶：默认 60 个桶，15 分钟窗口即每桶 15 秒。上限挡住把窗口切碎到
+	// 每桶不足一秒的请求——那种精度日志时间戳本身也给不出。
+	connectionsDefaultBuckets = 60
+	connectionsMaxBuckets     = 240
+	connectionFacetLimit      = 200
+	kdaeDebugLogRevision      = 1148
+	connectionLogLevelRetry   = 30 * time.Second
+	minimumCommitIDLength     = 6
 )
 
 const (
@@ -49,6 +53,13 @@ type connectionsSummary struct {
 type connectionEndpoint struct {
 	Address string `json:"address"`
 	Count   int    `json:"count"`
+}
+
+// connectionBucket 是一段等长时间区间内的新建连接数。At 是区间的起点，
+// 区间长度由窗口除以桶数得到，最后一个桶的终点就是本次响应的 now。
+type connectionBucket struct {
+	At    time.Time `json:"at"`
+	Count int       `json:"count"`
 }
 
 type connectionFacet struct {
@@ -77,6 +88,8 @@ type connectionsResponse struct {
 	Truncated           bool                 `json:"truncated,omitempty"`
 	FacetLimited        bool                 `json:"facetLimited,omitempty"`
 	Summary             connectionsSummary   `json:"summary"`
+	Series              []connectionBucket   `json:"series"`
+	SeriesSince         *time.Time           `json:"seriesSince,omitempty"`
 	Facets              connectionFacets     `json:"facets"`
 	Endpoints           []connectionEndpoint `json:"endpoints"`
 	Entries             []daeconn.Event      `json:"entries"`
@@ -154,6 +167,11 @@ func (tracker *connectionTracker) handle(writer http.ResponseWriter, request *ht
 		writeAPIError(writer, http.StatusBadRequest, "invalid_connection_window", err.Error())
 		return
 	}
+	buckets, err := connectionBucketCount(request)
+	if err != nil {
+		writeAPIError(writer, http.StatusBadRequest, "invalid_connection_buckets", err.Error())
+		return
+	}
 
 	var status host.Status
 	statusOK := false
@@ -175,6 +193,10 @@ func (tracker *connectionTracker) handle(writer http.ResponseWriter, request *ht
 	now := time.Now().UTC()
 	windowed := connectionEventsSince(merged, now.Add(-window))
 	facets, clientCount, targetCount, facetLimited := buildConnectionFacets(windowed)
+	// 覆盖起点按整个存储算，不是按窗口内的事件：存储里若留着比窗口更早的事件，
+	// 就证明这段窗口从头到尾都在面板的观测范围内。
+	series := buildConnectionSeries(windowed, now, window, buckets)
+	seriesSince := connectionSeriesSince(merged)
 
 	var snapshot daeconn.Snapshot
 	snapshotOK := false
@@ -219,9 +241,11 @@ func (tracker *connectionTracker) handle(writer http.ResponseWriter, request *ht
 			WindowClients:  clientCount,
 			WindowTargets:  targetCount,
 		},
-		Facets:    facets,
-		Endpoints: sortedConnectionEndpoints(snapshot.Endpoints),
-		Entries:   listed,
+		Series:      series,
+		SeriesSince: seriesSince,
+		Facets:      facets,
+		Endpoints:   sortedConnectionEndpoints(snapshot.Endpoints),
+		Entries:     listed,
 	})
 }
 
@@ -453,6 +477,66 @@ func connectionLimit(request *http.Request) (int, error) {
 		return 0, errors.New("连接条数必须是 1 到 2000 之间的整数")
 	}
 	return limit, nil
+}
+
+func connectionBucketCount(request *http.Request) (int, error) {
+	raw := request.URL.Query().Get("buckets")
+	if raw == "" {
+		return connectionsDefaultBuckets, nil
+	}
+	buckets, err := strconv.Atoi(raw)
+	if err != nil || buckets < 1 || buckets > connectionsMaxBuckets {
+		return 0, errors.New("曲线桶数必须是 1 到 240 之间的整数")
+	}
+	return buckets, nil
+}
+
+// buildConnectionSeries 把窗口内的事件聚合成等长的桶。空桶必须保留：曲线上
+// 的缺口代表"这段时间确实没有新建连接"，靠省略点让折线自己连过去会把安静期
+// 画成斜坡。事件已按时间倒序，这里只做一次线性分配。
+func buildConnectionSeries(events []daeconn.Event, end time.Time, window time.Duration, buckets int) []connectionBucket {
+	if buckets < 1 || window <= 0 {
+		return nil
+	}
+	start := end.Add(-window)
+	width := window / time.Duration(buckets)
+	if width <= 0 {
+		return nil
+	}
+	series := make([]connectionBucket, buckets)
+	for index := range series {
+		series[index] = connectionBucket{At: start.Add(time.Duration(index) * width)}
+	}
+	for _, event := range events {
+		if event.Timestamp.Before(start) || !event.Timestamp.Before(end) {
+			continue
+		}
+		index := int(event.Timestamp.Sub(start) / width)
+		// 整除的边界情况：窗口不能被桶数整除时，末尾几纳秒会落到 buckets 之外。
+		if index >= buckets {
+			index = buckets - 1
+		}
+		series[index].Count++
+	}
+	return series
+}
+
+// connectionSeriesSince 给出曲线可信区间的起点：面板的事件存储只从它开始
+// 轮询时积累，容量满后还会淘汰最旧的事件。早于这个时刻的桶是"面板不知道"，
+// 不是"当时没有流量"，前端必须区分这两者——与 socket 快照的"未捕获"同理。
+// 取存储中最旧事件的时间是保守估计：安静期开头也会被算作未覆盖，宁可少声称
+// 知道，也不把无知报成零。存储为空时返回 nil，代表整个窗口都无从判断。
+func connectionSeriesSince(events []daeconn.Event) *time.Time {
+	oldest := time.Time{}
+	for _, event := range events {
+		if oldest.IsZero() || event.Timestamp.Before(oldest) {
+			oldest = event.Timestamp
+		}
+	}
+	if oldest.IsZero() {
+		return nil
+	}
+	return &oldest
 }
 
 func sortedConnectionEndpoints(counts map[string]int) []connectionEndpoint {
