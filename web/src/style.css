@@ -3669,3 +3669,562 @@ pre,
     flex-direction: column;
   }
 }
+
+/* ============================================================
+   运行概览：状态窄栏 + 流量 + 出站健康 + 需要注意。
+   这一页的原则是绝不用 0 或空白冒充测量值——测不到、没覆盖、
+   真的是零，三者在视觉上必须能分开。
+   ============================================================ */
+
+.dash-card {
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+}
+
+.dash-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+}
+
+.dash-card-title strong,
+.dash-card-head > strong {
+  white-space: nowrap;
+}
+
+.dash-card-title,
+.dash-card-tools {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.dash-card-title strong,
+.dash-card-head > strong {
+  color: var(--text-bright);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.dash-card-title .n-text {
+  font-size: 11px;
+}
+
+.dash-link {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.dash-link:hover {
+  color: var(--accent-hover);
+}
+
+.dash-link:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 状态窄栏：常驻但不抢第一屏 */
+.dash-service {
+  min-height: 46px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+}
+
+.dash-service-copy,
+.dash-service-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.dash-service-copy {
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.dash-service-copy strong {
+  color: var(--text-bright);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.dash-service-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dash-service-actions {
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.dash-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.dash-dot.tone-ok { background: var(--ok); }
+.dash-dot.tone-warn { background: var(--warn); }
+.dash-dot.tone-danger { background: var(--danger); }
+.dash-dot.tone-accent { background: var(--accent); }
+
+.dash-beacon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 6px var(--border-soft);
+}
+
+.dash-beacon.live {
+  background: var(--ok);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+/* 流量 */
+.dash-traffic-head {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 20px 36px;
+}
+
+.dash-traffic-primary {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dash-traffic-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dash-traffic-value {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.dash-traffic-value strong {
+  color: var(--text-bright);
+  font-size: 44px;
+  font-weight: 720;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-traffic-value span,
+.dash-traffic-primary small {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.dash-traffic-primary small {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.dash-traffic-metrics {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  align-self: center;
+}
+
+.dash-traffic-metrics > div {
+  padding: 0 22px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.dash-traffic-metrics dt,
+.dash-traffic-metrics dd {
+  margin: 0;
+}
+
+.dash-traffic-metrics dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dash-traffic-metrics dd {
+  color: var(--text-bright);
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* socket 快照：刻意做成次要信息，措辞里带上它测不到什么 */
+.dash-socket {
+  min-width: 0;
+  max-width: 300px;
+  margin: 0;
+  align-self: center;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+  border-left: 1px solid var(--border);
+}
+
+.dash-socket dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dash-socket dd {
+  margin: 0;
+  display: flex;
+  gap: 14px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.dash-socket dd strong {
+  margin-left: 5px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dash-socket-note {
+  display: block !important;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.dash-spark {
+  margin-top: 18px;
+}
+
+.dash-spark svg {
+  width: 100%;
+  height: 132px;
+  display: block;
+}
+
+.dash-spark-grid {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+
+.dash-spark-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* 未覆盖区间：只留斜纹，不画线也不填色 */
+.dash-spark-unknown {
+  fill: var(--border-soft);
+  opacity: 0.5;
+}
+
+.dash-spark-axis {
+  margin-top: 7px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.dash-spark-note {
+  min-width: 0;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.dash-telemetry-empty,
+.dash-telemetry-off {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.dash-telemetry-empty {
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 8px 0;
+}
+
+.dash-telemetry-off {
+  gap: 16px 32px;
+  flex-wrap: wrap;
+}
+
+.dash-telemetry-copy {
+  min-width: 260px;
+  flex: 1 1 460px;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.dash-telemetry-copy p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.75;
+  text-wrap: pretty;
+}
+
+.dash-telemetry-copy code {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.dash-telemetry-cost {
+  color: var(--text-faint) !important;
+  font-size: 12px !important;
+}
+
+/* 两列：出站健康与需要注意 */
+.dash-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 16px;
+  /* 同一行的卡片共享底边；错落的底边正是旧版首页被诟病的地方之一 */
+  align-items: stretch;
+}
+
+.dash-columns > .dash-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash-columns > .dash-card > .dash-foot-note {
+  margin-top: auto;
+}
+
+.dash-outbounds,
+.dash-attention {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dash-outbounds > li {
+  min-height: 56px;
+  padding: 9px 4px;
+  display: grid;
+  grid-template-columns: minmax(88px, 108px) minmax(0, 1fr) 120px;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.dash-group {
+  min-width: 0;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.dash-outbound-node {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.dash-outbound-name {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dash-outbound-node strong {
+  color: var(--text-bright);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dash-outbound-node strong.dash-muted {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.dash-outbound-node small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.dash-latency {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-latency.tone-ok { color: var(--ok); font-size: 15px; font-weight: 700; }
+.dash-latency.tone-warn { color: var(--warn); font-size: 15px; font-weight: 700; }
+.dash-latency.tone-danger { color: var(--danger); font-size: 15px; font-weight: 700; }
+
+.dash-foot-note {
+  display: block;
+  margin-top: 14px;
+  padding-top: 12px;
+  font-size: 11px;
+  line-height: 1.6;
+  border-top: 1px solid var(--border-soft);
+  text-wrap: pretty;
+}
+
+.dash-attention > li {
+  padding: 12px 4px;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 11px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.dash-attention .dash-dot {
+  margin-top: 5px;
+  width: 7px;
+  height: 7px;
+}
+
+.dash-attention > li > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.dash-attention strong {
+  color: var(--text-bright);
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dash-attention small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.dash-attention .dash-link {
+  padding-top: 2px;
+  font-size: 11px;
+}
+
+.dash-empty {
+  padding: 26px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.dash-empty.compact {
+  padding: 20px 18px;
+}
+
+.dash-empty strong {
+  color: var(--text-bright);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dash-empty span {
+  max-width: 460px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+
+@media (max-width: 1100px) {
+  .dash-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dash-socket {
+    max-width: none;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .dash-traffic-metrics > div:first-child {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .dash-service {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .dash-traffic-value strong {
+    font-size: 36px;
+  }
+
+  .dash-outbounds > li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 6px;
+  }
+
+  .dash-outbounds > li > .dash-group {
+    grid-area: 1 / 1;
+  }
+
+  .dash-outbounds > li > .dash-latency {
+    grid-area: 1 / 2;
+  }
+
+  .dash-outbounds > li > .dash-outbound-node {
+    grid-area: 2 / 1 / 3 / -1;
+  }
+
+  /* 探测时刻在窄屏是噪音，标题和操作优先 */
+  .dash-card-title .n-text {
+    display: none;
+  }
+}

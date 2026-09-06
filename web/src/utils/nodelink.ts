@@ -154,3 +154,16 @@ function normalizeTag(value: string): string {
   if (!/^[A-Za-z_]/.test(normalized)) normalized = `node_${normalized}`
   return normalized
 }
+
+/**
+ * latencyTarget 把节点信息收敛成可探测的目标。校验规则要和后端
+ * netprobe 的 Target.validate 对齐：主机不能带空白或斜杠、长度 <=253，
+ * 端口必须在 1-65535。首页和编排页共用这一份，避免两边各写一套。
+ */
+export function latencyTarget(info: NodeLinkInfo | null): { host: string; port: number } | null {
+  const host = info?.host
+  const port = info?.port
+  if (!host || host !== host.trim() || host.length > 253 || /[\s/\\]/.test(host)) return null
+  if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) return null
+  return { host, port }
+}

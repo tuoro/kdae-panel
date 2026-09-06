@@ -22,7 +22,7 @@ import { useMobileViewport } from '../../composables/useMobileViewport'
 import type { LatencyResult, LatencyTarget } from '../../types/api'
 import { appendToSection, isQuotable, isValidTag, parseGroups, quote, readSection, removeLine, replaceLine, type Entry } from '../../utils/daeconf'
 import { includeNodesInGroups } from '../../utils/group'
-import { allocateNodeTags, parseNodeLink, type NodeLinkInfo } from '../../utils/nodelink'
+import { allocateNodeTags, latencyTarget, parseNodeLink, type NodeLinkInfo } from '../../utils/nodelink'
 import { entryActions, useEntryRewrite, type EntryTarget } from './entry'
 import SectionEditorModal from './SectionEditorModal.vue'
 
@@ -150,11 +150,7 @@ function latencyKey(info: NodeLinkInfo): string {
 
 /** 与后端 netprobe.Target.validate 一致，避免把明显非法的目标发出去。 */
 function probeTarget(info: NodeLinkInfo | null): LatencyTarget | null {
-  const host = info?.host
-  const port = info?.port
-  if (!host || host !== host.trim() || host.length > 253 || /[\s/\\]/.test(host)) return null
-  if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) return null
-  return { host, port }
+  return latencyTarget(info)
 }
 
 async function probeLatency() {
