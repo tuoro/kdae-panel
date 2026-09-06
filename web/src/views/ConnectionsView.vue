@@ -10,8 +10,6 @@ import {
   NEmpty,
   NIcon,
   NInput,
-  NRadioButton,
-  NRadioGroup,
   NSelect,
   NSpace,
   NSpin,
@@ -477,17 +475,24 @@ onBeforeUnmount(() => {
             <strong>活动分布</strong>
             <small>所选时段内的新建连接</small>
           </div>
-          <NRadioGroup
-            v-if="!mobile"
-            :value="facetDimension"
-            size="small"
-            class="connection-facet-modes"
-            @update:value="changeFacetDimension"
-          >
-            <NRadioButton v-for="option in facetOptions" :key="option.value" :value="option.value">
+          <!-- 维度切换用标签页而不是分段按钮组：它只是切视图，不该长成一组按钮。
+               分段器的外框会带出一根分隔线，naive-ui 把它染成 primaryColor，
+               在深色底上放大后是一道发光竖条——去掉外框，这个问题就不存在了。
+               写法与全站顶部的 section-tab 一致，同一个动作在各处长同一个样。 -->
+          <div v-if="!mobile" class="tab-switch connection-facet-modes" role="tablist" aria-label="活动分布维度">
+            <button
+              v-for="option in facetOptions"
+              :key="option.value"
+              type="button"
+              role="tab"
+              class="tab-switch-item"
+              :class="{ active: facetDimension === option.value }"
+              :aria-selected="facetDimension === option.value"
+              @click="changeFacetDimension(option.value)"
+            >
               {{ option.label }}
-            </NRadioButton>
-          </NRadioGroup>
+            </button>
+          </div>
         </header>
 
         <div v-if="!mobile" class="connection-facet-desktop">

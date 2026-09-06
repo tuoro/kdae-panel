@@ -1111,17 +1111,54 @@ pre,
   font-size: 10px;
 }
 
-.connection-facet-modes {
-  width: 288px;
-  flex: 0 0 auto;
-  display: flex !important;
+/* 视图切换标签：连接活动的分布维度、dae 版本的来源。
+   不用分段按钮组——它的外框会带出一根分隔线，naive-ui 把它染成 primaryColor，
+   在深色底上放大后是一道发光竖条；去掉外框，这个问题就不存在了。
+   选中态沿用青底深字：实心色块不像发丝线那样会被缩放糊开。 */
+.tab-switch {
+  display: flex;
   flex-wrap: nowrap;
+  gap: 4px;
 }
 
-.connection-facet-modes .n-radio-button {
-  min-width: 0;
-  flex: 1 1 0;
-  text-align: center;
+.tab-switch-item {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tab-switch-item:hover {
+  color: var(--text-bright);
+  background: var(--border-soft);
+}
+
+.tab-switch-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.tab-switch-item.active {
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+
+.tab-switch-item.active:hover {
+  background: var(--accent-hover);
+}
+
+/* 这个选择器要比上面的 .connection-facets > header > div{display:grid} 更 specific，
+   否则标签会被那条规则竖着堆起来。原实现靠 !important 压制，这里用特异性解决。 */
+.connection-facets > header > .tab-switch {
+  flex: 0 0 auto;
 }
 
 .connection-facet-desktop {

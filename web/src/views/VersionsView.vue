@@ -9,8 +9,6 @@ import {
   NDataTable,
   NEmpty,
   NIcon,
-  NRadioButton,
-  NRadioGroup,
   NSpace,
   NSpin,
   NTag,
@@ -531,11 +529,21 @@ onBeforeUnmount(() => {
 
       <NCard class="panel-card" content-style="padding: 0;">
         <template #header>
-          <NRadioGroup :value="source" size="small" @update:value="changeSource">
-            <NRadioButton v-for="item in SOURCES" :key="item.value" :value="item.value">
+          <!-- 与连接活动的维度切换同一套写法，见 style.css 的 .tab-switch -->
+          <div class="tab-switch" role="tablist" aria-label="版本来源">
+            <button
+              v-for="item in SOURCES"
+              :key="item.value"
+              type="button"
+              role="tab"
+              class="tab-switch-item"
+              :class="{ active: source === item.value }"
+              :aria-selected="source === item.value"
+              @click="changeSource(item.value)"
+            >
               {{ item.label }}
-            </NRadioButton>
-          </NRadioGroup>
+            </button>
+          </div>
         </template>
         <div class="source-hint">
           <NText depth="3">{{ activeSource.hint }}</NText>
