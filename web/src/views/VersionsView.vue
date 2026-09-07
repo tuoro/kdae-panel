@@ -106,6 +106,38 @@ const orderedVersions = computed(() => versions.value
     return left.index - right.index
   })
   .map(({ version }) => version))
+// 这一页此前没有主操作：顶上只有一个灰色的"刷新"，而三十多行版本每行挂着
+// 一个同样的"预检并切换"，v2.0.0 和 v0.1.4 视觉权重完全相同。用户实际只做
+// 两件事——装最新的，或回到某个已知好的版本。把前者提成明确的一步。
+const latestVersion = computed(() =>
+  versions.value.find((item) => item.installable && !item.prerelease) ?? null)
+const currentVersionLabel = computed(() => {
+  if (status.value?.drifted) return '已被外部替换'
+  const managed = versions.value.find((item) => isInstalled(item))
+  if (managed) return managed.label
+  return (status.value?.version || '').trim() || '未知'
+})
+// 只有能确认当前版本、且最新版与它不同，才谈得上"有更新"。当前版本未知时
+// 不能拿"最新版没被标成已安装"当作有更新——那是不知道，不是有更新。
+const updateAvailable = computed(() => {
+  const latest = latestVersion.value
+  if (!latest || firstInstall.value || status.value?.drifted) return false
+  if (!installedRef.value) return false
+  return !isInstalled(latest)
+})
+
+// 历史版本默认折叠。三十多行平铺时 v2.0.0 和 v0.1.4 视觉权重完全一样，
+// 而用户实际只在最近几个版本和自己下载过的那些之间做选择。
+const VISIBLE_VERSIONS = 6
+const showAllVersions = ref(false)
+const visibleVersions = computed(() => {
+  if (showAllVersions.value) return orderedVersions.value
+  const kept = orderedVersions.value.filter(
+    (item, index) => index < VISIBLE_VERSIONS || isInstalled(item) || item.cached)
+  return kept
+})
+const hiddenVersionCount = computed(() => orderedVersions.value.length - visibleVersions.value.length)
+
 const canUninstall = computed(() => status.value?.ready === true && status.value.managed !== undefined && !status.value.drifted)
 const uninstallHint = computed(() => {
   if (status.value?.drifted) return 'dae 已在面板之外被替换，请先重装一个版本后再卸载'
@@ -352,8 +384,10 @@ const columns = computed<DataTableColumns<UpstreamVersion>>(() => [
   {
     title: '版本',
     key: 'label',
-    width: 170,
-    render: (row) => h(NSpace, { size: 4, align: 'center', wrap: false }, {
+    minWidth: 300,
+    // 说明并进版本列：官方发布这一列几乎整列是 "—"，为一列空数据占着宽度不值
+    render: (row) => h('div', { class: 'version-cell' }, [
+      h(NSpace, { size: 4, align: 'center', wrap: false }, {
       default: () => [
         h('span', { class: 'mono version-label' }, row.label),
         isInstalled(row)
@@ -369,14 +403,9 @@ const columns = computed<DataTableColumns<UpstreamVersion>>(() => [
           ? h(NTag, { size: 'tiny', type: 'warning', bordered: false }, { default: () => '预发布' })
           : null,
       ].filter(Boolean),
-    }),
-  },
-  {
-    title: source.value === 'kdae' ? '提交说明' : '发布名称',
-    key: 'description',
-    minWidth: 220,
-    ellipsis: { tooltip: true },
-    render: (row) => row.description || h(NText, { depth: 3 }, { default: () => '—' }),
+      }),
+      row.description ? h('small', { class: 'version-cell-note' }, row.description) : null,
+    ].filter(Boolean)),
   },
   {
     title: source.value === 'kdae' ? '构建时间' : '发布时间',
@@ -525,6 +554,34 @@ onBeforeUnmount(() => {
       <NAlert v-else-if="job?.phase === 'failed'" type="error" :bordered="false">
         上次操作失败：{{ job.error }}
       </NAlert>
+      <!-- 当前状态与推荐动作提到最前。此前这一页没有主操作：三十多行版本
+           每行一个同样的"预检并切换"，用户得自己在表里认出哪个是最新的。 -->
+      <section v-if="!loading && !firstInstall" class="version-headline">
+        <div class="version-headline-copy">
+          <span class="version-headline-label">当前安装</span>
+          <strong class="mono">{{ currentVersionLabel }}</strong>
+          <span v-if="updateAvailable" class="version-headline-note">
+            {{ activeSource.label }}有更新 <code class="mono">{{ latestVersion?.label }}</code>
+          </span>
+          <span v-else-if="latestVersion && !status?.drifted && installedRef" class="version-headline-note ok">
+            已是 {{ activeSource.label }}最新
+          </span>
+          <span v-else-if="!installedRef" class="version-headline-note">
+            该二进制不是由面板安装的，无法比对版本
+          </span>
+        </div>
+        <NButton
+          v-if="updateAvailable && latestVersion"
+          type="primary"
+          :loading="busy"
+          :disabled="disabled || busy"
+          @click="confirmInstall(latestVersion)"
+        >
+          <template #icon><NIcon><CloudDownloadOutline /></NIcon></template>
+          预检并切换到 {{ latestVersion.label }}
+        </NButton>
+      </section>
+
       <InstallStatusCard :loading="loading" :busy="busy" :status="status" :provision="provision" />
 
       <NCard class="panel-card" content-style="padding: 0;">
@@ -552,7 +609,7 @@ onBeforeUnmount(() => {
         <NDataTable
           v-if="!mobile"
           :columns="columns"
-          :data="orderedVersions"
+          :data="visibleVersions"
           :loading="listing"
           :row-key="(row: UpstreamVersion) => row.ref"
           :scroll-x="820"
@@ -565,7 +622,15 @@ onBeforeUnmount(() => {
             </div>
           </template>
         </NDataTable>
-        <NSpin v-else :show="listing">
+        <div v-if="!mobile && hiddenVersionCount > 0" class="version-more">
+          <NButton text type="primary" @click="showAllVersions = true">
+            展开全部 {{ orderedVersions.length }} 个版本（还有 {{ hiddenVersionCount }} 个历史版本）
+          </NButton>
+        </div>
+        <div v-if="!mobile && showAllVersions && orderedVersions.length > VISIBLE_VERSIONS" class="version-more">
+          <NButton text @click="showAllVersions = false">收起历史版本</NButton>
+        </div>
+        <NSpin v-if="mobile" :show="listing">
           <div v-if="orderedVersions.length" class="mobile-record-list" data-testid="mobile-version-list">
             <article v-for="version in orderedVersions" :key="versionKey(version)" class="mobile-record">
               <div class="mobile-record-head">

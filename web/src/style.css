@@ -2126,6 +2126,75 @@ pre,
   gap: 4px;
 }
 
+/* 当前状态与推荐动作：这一页原来没有主操作，用户得自己在三十多行里认出
+   哪个是最新的。左侧色条与故障诊断的摘要条同一套写法。 */
+.version-headline {
+  min-height: 72px;
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text-faint);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.version-headline-copy {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}
+
+.version-headline-label {
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+}
+
+.version-headline-copy strong {
+  color: var(--text-bright);
+  font-size: var(--text-title);
+  font-weight: 700;
+}
+
+.version-headline-note {
+  color: var(--text-muted);
+  font-size: var(--text-body);
+}
+
+.version-headline-note.ok {
+  color: var(--ok);
+}
+
+.version-headline-note code {
+  color: var(--text-bright);
+}
+
+/* 说明并进版本列：官方发布那一列几乎整列是 "—" */
+.version-cell {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.version-cell-note {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-more {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-soft);
+}
+
 .source-hint {
   padding: 12px 16px;
   font-size: 12px;
