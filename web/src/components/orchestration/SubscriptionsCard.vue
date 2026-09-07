@@ -377,7 +377,7 @@ function onSubOverflow(key: string) {
           placeholder="请求 UA"
           class="subscription-ua-select"
         />
-        <NButton type="primary" ghost :loading="preparing" @click="addSubscription">
+        <NButton type="primary" :loading="preparing" @click="addSubscription">
           <template #icon><NIcon><AddOutline /></NIcon></template>添加
         </NButton>
       </NInputGroup>

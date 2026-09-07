@@ -396,7 +396,7 @@ function applyGroupEdit() {
       <NInputGroup>
         <NInput v-model:value="newGroupName" placeholder="新分组名，如 proxy" @keyup.enter="createGroup" />
         <NSelect v-model:value="newGroupPolicy" :options="CREATE_POLICY_OPTIONS" class="group-policy-select" />
-        <NButton type="primary" ghost @click="createGroup">
+        <NButton type="primary" @click="createGroup">
           <template #icon><NIcon><AddOutline /></NIcon></template>新建
         </NButton>
       </NInputGroup>

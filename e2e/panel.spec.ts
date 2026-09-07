@@ -1090,8 +1090,12 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
       body: JSON.stringify({
         snapshotAt: at(0), snapshotOk: true, serviceRunning: true, socketWindowSeconds: 30,
         summary: { outboundTcp: 32, udpSockets: 1, sampledTcpPeak: 38, sampledUdpPeak: 4 },
+        // 必须与完整端点返回同一份：真实系统里两者来自同一次采样，给不同的
+        // 数据会让秒级轮询把完整端点的结果覆盖掉，断言时灵时不灵。
         endpoints: [
-          { address: '203.0.113.10:443', count: 2 },
+          { address: '144.34.225.42:30128', count: 26 },
+          { address: '223.6.6.6:443', count: 4 },
+          { address: '38.55.107.116:443', count: 2 },
           { address: '203.0.113.90:8443', count: 1 },
         ],
       }),
