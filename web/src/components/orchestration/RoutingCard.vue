@@ -217,18 +217,22 @@ function outboundType(outbound: string): 'success' | 'error' | 'info' | 'default
   <NCard title="路由规则" class="panel-card routing-card" data-testid="routing-card">
     <template #header-extra>
       <NSpace size="small" align="center">
-        <SectionVersionControls kind="routing" :body="routingBody" @apply="applyVersion" />
         <NTag size="small" :bordered="false">{{ routingRules.length }} 条</NTag>
-        <NButton size="small" secondary @click="openRuleEditor()">
+        <NButton size="small" type="primary" @click="openRuleEditor()">
           <template #icon><NIcon><AddOutline /></NIcon></template>添加规则
         </NButton>
         <NButton size="small" quaternary @click="openRoutingEditor">
-          <template #icon><NIcon><CreateOutline /></NIcon></template>编辑路由
+          <template #icon><NIcon><CreateOutline /></NIcon></template>编辑
         </NButton>
       </NSpace>
     </template>
+    <!-- 版本选择器从卡片头移到这里：它是"下拉 + 另存为 + 溢出"的复合控件，
+         塞不进溢出菜单，留在头里会让这张卡片头达到六个控件。 -->
+    <div class="routing-version-bar">
+      <SectionVersionControls kind="routing" :body="routingBody" @apply="applyVersion" />
+    </div>
     <div v-if="routingRules.length === 0" class="orchestrate-empty">
-      <NText depth="3">还没有路由规则。可以逐条添加，也可以用“编辑路由”选择常用模板。</NText>
+      <NText depth="3">还没有路由规则。可以逐条添加，也可以用“编辑”选择常用模板。</NText>
     </div>
     <ol v-else class="routing-list">
       <li v-for="(rule, index) in routingRules" :key="rule.lineStart" class="routing-rule" :class="{ fallback: rule.isFallback }">

@@ -2,6 +2,7 @@
 import { computed, h, ref } from 'vue'
 import {
   NButton,
+  NDropdown,
   NCard,
   NDataTable,
   NEmpty,
@@ -236,20 +237,21 @@ function latencyTitle(row: NodeRow): string {
 
 const nodeColumns: DataTableColumns<NodeRow> = [
   {
+    // 原来"名称"和"标签"是两列：名称渲染 tag || info.name，标签渲染 tag，
+    // 有标签时两列内容完全相同——绝大多数行都是。合成一列，没有标签时
+    // 显示分享链接里的名字并注明，信息不丢。
     title: '名称',
     key: 'name',
-    minWidth: 160,
-    ellipsis: { tooltip: true },
-    render: (row) => row.entry.tag || row.info?.name || h(NText, { depth: 3 }, { default: () => '未命名' }),
-  },
-  {
-    title: '标签',
-    key: 'tag',
-    width: 130,
+    minWidth: 220,
     ellipsis: { tooltip: true },
     render: (row) => row.entry.tag
-      ? h(NTag, { size: 'small', bordered: false }, { default: () => row.entry.tag })
-      : h(NText, { depth: 3 }, { default: () => '—' }),
+      ? row.entry.tag
+      : h(NSpace, { size: 6, align: 'center', wrap: false }, {
+          default: () => [
+            row.info?.name || h(NText, { depth: 3 }, { default: () => '未命名' }),
+            h(NText, { depth: 3, style: 'font-size: var(--text-meta)' }, { default: () => '无标签' }),
+          ],
+        }),
   },
   {
     title: '协议',
@@ -290,6 +292,18 @@ const nodeColumns: DataTableColumns<NodeRow> = [
     ]),
   },
 ]
+// 卡片头只留标题、计数、一个主操作和溢出菜单。原来四到六个控件平铺，
+// 每张卡片的组合还都不一样，用户得逐张辨认哪个是主要的。
+const nodeOverflowOptions = computed(() => [
+  { label: '测试入口延迟', key: 'probe', disabled: nodes.value.length === 0 || probing.value },
+  ...(anonymousNodes.value.length ? [{ label: '补全标签', key: 'label' }] : []),
+  { label: '编辑原文', key: 'source' },
+])
+function onNodeOverflow(key: string) {
+  if (key === 'probe') void probeLatency()
+  if (key === 'label') void labelAnonymousNodes()
+  if (key === 'source') sourceVisible.value = true
+}
 </script>
 
 <template>
@@ -297,18 +311,12 @@ const nodeColumns: DataTableColumns<NodeRow> = [
     <template #header-extra>
       <NSpace size="small">
         <NTag size="small" :bordered="false">{{ nodes.length }} 个</NTag>
-        <NButton size="small" secondary :loading="probing" :disabled="nodes.length === 0" @click="probeLatency">
-          <template #icon><NIcon><FlashOutline /></NIcon></template>测试入口延迟
-        </NButton>
-        <NButton v-if="anonymousNodes.length" size="small" secondary @click="labelAnonymousNodes">
-          <template #icon><NIcon><PricetagOutline /></NIcon></template>补全标签
-        </NButton>
         <NButton size="small" type="primary" @click="openImporter">
           <template #icon><NIcon><DownloadOutline /></NIcon></template>导入节点
         </NButton>
-        <NButton size="small" quaternary @click="sourceVisible = true">
-          <template #icon><NIcon><CreateOutline /></NIcon></template>编辑原文
-        </NButton>
+        <NDropdown trigger="click" :options="nodeOverflowOptions" @select="onNodeOverflow">
+          <NButton size="small" quaternary aria-label="更多节点操作">⋯</NButton>
+        </NDropdown>
       </NSpace>
     </template>
     <NDataTable

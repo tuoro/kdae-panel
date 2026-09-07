@@ -530,13 +530,10 @@ onMounted(async () => {
       </NAlert>
     </div>
 
-    <NText depth="3" class="geo-hint">
-      dae 运行时只 reload、不重启；未运行时只更新文件并在下次启动时读取。
-      reload 不影响新连接，但进行中的长连接最多约 10 秒后可能被断开。
-      不同来源的规则集不一定相同，切换会改变 <code class="mono">geosite:</code>
-      规则匹配的域名集合；同名分类内容变化不会报错。运行中的 dae 会在分类不存在时回滚并明确提示，
-      未运行时只能等下次启动检查。
-    </NText>
+    <!-- 这里原有一段解释"更新之后会发生什么"的说明墙：reload 行为、长连接
+         中断、切换来源的后果、失败回滚。它与 confirmUpdateGeo 的确认对话框
+         内容完全重合，而对话框是按 dae 是否运行、是否换来源动态生成的，更准；
+         页面底部那份是静态的，且出现在用户不会读它的时候。 -->
 
     <NModal v-model:show="scheduleVisible" preset="card" title="geo 数据自动更新" class="orchestrate-modal">
       <NText depth="3">

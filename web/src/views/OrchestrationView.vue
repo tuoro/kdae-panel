@@ -4,6 +4,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import {
   NAlert,
   NButton,
+  NDropdown,
   NGrid,
   NGridItem,
   NIcon,
@@ -66,6 +67,15 @@ function managedSnapshot(items: ManagedSubscription[]): string {
 function managedForContent(text: string, items: ManagedSubscription[]): ManagedSubscription[] {
   const entries = readSection(text, 'subscription').entries
   return items.filter((item) => entries.some((entry) => entry.tag === item.tag && entry.value === item.localUrl))
+}
+
+const saveOverflowOptions = computed(() => [
+  { label: '校验配置', key: 'validate', disabled: loading.value },
+  { label: '仅保存，不重载', key: 'save', disabled: loading.value || !dirty.value },
+])
+function onSaveOverflow(key: string) {
+  if (key === 'validate') void validate()
+  if (key === 'save') void save(false)
 }
 
 const dirty = computed(() => content.value !== originalContent.value
@@ -206,12 +216,11 @@ onMounted(() => void load())
         <NButton secondary :disabled="loading" @click="load">
           <template #icon><NIcon><RefreshOutline /></NIcon></template>重新读取
         </NButton>
-        <NButton :loading="validating" :disabled="loading" @click="validate">
-          <template #icon><NIcon><CheckmarkCircleOutline /></NIcon></template>校验
-        </NButton>
-        <NButton class="desktop-only" :loading="saving" :disabled="loading || !dirty" @click="save(false)">
-          <template #icon><NIcon><SaveOutline /></NIcon></template>仅保存
-        </NButton>
+        <!-- 一页只留一个主操作。"校验"和"仅保存"是它的变体，收进溢出菜单；
+             四个并排的按钮里有两个是"保存"，用户得先分辨再选。 -->
+        <NDropdown trigger="click" :options="saveOverflowOptions" @select="onSaveOverflow">
+          <NButton class="desktop-only" quaternary aria-label="更多保存操作">⋯</NButton>
+        </NDropdown>
         <NButton class="desktop-only" type="primary" :loading="saving" :disabled="loading || !dirty" @click="confirmReload">
           <template #icon><NIcon><CloudUploadOutline /></NIcon></template>保存并重载
         </NButton>
@@ -240,7 +249,8 @@ onMounted(() => void load())
         <DNSCard v-model="content" />
         <NodesCard v-model="content" />
 
-        <NGrid class="equal-height-grid" responsive="screen" cols="1 l:2" :x-gap="16" :y-gap="16">
+        <!-- 不再强制等高：订阅通常只有一两行，被右侧分组撑高后下半是空的 -->
+        <NGrid responsive="screen" cols="1 l:2" :x-gap="16" :y-gap="16">
           <NGridItem>
             <SubscriptionsCard v-model="content" v-model:managed="managedSubscriptions" :dirty="dirty" />
           </NGridItem>

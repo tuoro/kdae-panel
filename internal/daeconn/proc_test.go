@@ -142,3 +142,49 @@ func writeProcTable(t *testing.T, root, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+// 端点必须跨采样窗口累积。单次点采样几乎抓不到 dae 的 socket，只报本次采样
+// 的端点集合会让端点列表长期为空——那不是"没有出站"，是"这一瞬没抓到"。
+func TestProcSnapshotterMergesEndpointsAcrossSampleWindow(t *testing.T) {
+	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	snapshotter := NewProcSnapshotter()
+	snapshotter.now = func() time.Time { return now }
+	snapshotter.cachedPID = 42
+	// observed 由 Snapshot 按时间追加，最旧的在头部——淘汰循环依赖这个不变量
+	snapshotter.observed = []socketObservation{
+		// 早于 30 秒窗口，必须被淘汰
+		{at: now.Add(-90 * time.Second), tcp: 9, udp: 9, endpoints: map[string]int{"198.51.100.9:443": 9}},
+		{at: now.Add(-20 * time.Second), tcp: 3, udp: 0, endpoints: map[string]int{"203.0.113.1:443": 3}},
+		{at: now.Add(-10 * time.Second), tcp: 1, udp: 0, endpoints: map[string]int{"203.0.113.1:443": 1, "203.0.113.2:443": 1}},
+	}
+
+	merged := snapshotter.withSampledPeaks(Snapshot{Endpoints: map[string]int{}}, now)
+	if len(merged.Endpoints) != 2 {
+		t.Fatalf("端点数 = %d，want 2（窗口外的那个应被淘汰）: %+v", len(merged.Endpoints), merged.Endpoints)
+	}
+	// 同一端点取窗口内的采样峰值，与 SampledTCPPeak 同一口径
+	if merged.Endpoints["203.0.113.1:443"] != 3 {
+		t.Fatalf("同一端点应取采样峰值，得到 %d", merged.Endpoints["203.0.113.1:443"])
+	}
+	if _, leaked := merged.Endpoints["198.51.100.9:443"]; leaked {
+		t.Fatal("窗口外的端点泄漏进了结果")
+	}
+	if merged.SampledTCPPeak != 3 {
+		t.Fatalf("TCP 峰值 = %d，want 3", merged.SampledTCPPeak)
+	}
+}
+
+// 合并不能改动传入快照自己的 map：它可能是缓存里那一份，会被后续调用复用。
+func TestProcSnapshotterMergeDoesNotMutateInput(t *testing.T) {
+	now := time.Date(2026, 9, 7, 12, 0, 0, 0, time.UTC)
+	snapshotter := NewProcSnapshotter()
+	snapshotter.now = func() time.Time { return now }
+	snapshotter.observed = []socketObservation{
+		{at: now, tcp: 1, endpoints: map[string]int{"203.0.113.2:443": 1}},
+	}
+	original := map[string]int{"203.0.113.1:443": 2}
+	snapshotter.withSampledPeaks(Snapshot{Endpoints: original}, now)
+	if len(original) != 1 {
+		t.Fatalf("传入的端点 map 被改动了: %+v", original)
+	}
+}

@@ -281,7 +281,15 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     }))
     await page.goto('/proxy')
     await expect(page.getByText('检测到入口配置缺少 dns 节')).toBeVisible()
-    await expectCardsAligned(page.locator('.equal-height-grid .panel-card'))
+    // 订阅与分组不再强制等高：订阅通常只有一两行，被撑到与分组齐平后下半是
+    // 空的。两张卡仍应在同一行起始，高度则各随内容。
+    const [subscriptionBox, groupBox] = await Promise.all([
+      page.getByTestId('subscriptions-card').boundingBox(),
+      page.getByTestId('groups-card').boundingBox(),
+    ])
+    expect(subscriptionBox).not.toBeNull()
+    expect(groupBox).not.toBeNull()
+    expect(Math.abs(subscriptionBox!.y - groupBox!.y)).toBeLessThanOrEqual(1)
     for (const [toolbar, content] of [
       ['subscription-add', 'subscription-list'],
       ['group-add', 'group-list'],
@@ -295,7 +303,10 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
 
     const global = page.getByTestId('global-card')
     await expect(global).toBeVisible()
-    await global.getByRole('button', { name: '编辑设置' }).click()
+    // 全局设置默认收成一行摘要：设一次就不动的东西不占第一屏，展开才有动作
+    await expect(global.locator('.fold-card-actions')).toHaveCount(0)
+    await global.locator('.fold-card-toggle').click()
+    await global.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const globalModal = page.getByTestId('global-editor-modal')
     const logLevel = globalModal.locator('.global-field', { hasText: '日志级别' })
     const logLevelSelect = logLevel.locator('.n-base-selection')
@@ -320,9 +331,10 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(global).toContainText('auto')
 
     const dns = page.getByTestId('dns-card')
-    await expect(dns).toContainText('2 个上游')
-    await expect(dns).toContainText('4 条规则')
-    await dns.getByRole('button', { name: '编辑 DNS' }).click()
+    // 收起时那一行摘要必须说清里面有什么，否则用户不敢不展开
+    await expect(dns).toContainText('2 个上游 · 4 条规则')
+    await dns.locator('.fold-card-toggle').click()
+    await dns.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const dnsModal = page.getByTestId('dns-editor-modal')
     const dnsSimpleTab = dnsModal.locator('.n-tabs-tab', { hasText: '简单模式' })
     const dnsAdvancedTab = dnsModal.locator('.n-tabs-tab', { hasText: '进阶模式' })
@@ -373,7 +385,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await dnsModal.getByRole('button', { name: '取消' }).click()
 
     // 取消后两份草稿都应丢弃；重开看到的仍是配置正文，而不是任一未应用草稿。
-    await dns.getByRole('button', { name: '编辑 DNS' }).click()
+    await dns.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const reopenedDNSModal = page.getByTestId('dns-editor-modal')
     await reopenedDNSModal.locator('.n-tabs-tab', { hasText: '进阶模式' }).click()
     await expect(reopenedDNSModal.locator('textarea')).toHaveValue(originalDNSBody)
@@ -393,7 +405,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
 
     // 自定义 DNS 原文不应在卡片外常驻显示大段风险提示；只有准备从进阶模式
     // 转为简单模式时才提示，并要求再次确认。
-    await dns.getByRole('button', { name: '编辑 DNS' }).click()
+    await dns.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const advancedDNSModal = page.getByTestId('dns-editor-modal')
     await advancedDNSModal.locator('.n-tabs-tab', { hasText: '进阶模式' }).click()
     const safeDNSBody = await advancedDNSModal.locator('textarea').inputValue()
@@ -402,7 +414,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(dns.getByText('进阶配置', { exact: true })).toBeVisible()
     await expect(dns.getByText('当前 DNS 包含结构化编辑器未覆盖的内容')).toHaveCount(0)
 
-    await dns.getByRole('button', { name: '编辑 DNS' }).click()
+    await dns.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const guardedDNSModal = page.getByTestId('dns-editor-modal')
     const guardedAdvancedTab = guardedDNSModal.locator('.n-tabs-tab', { hasText: '进阶模式' })
     const guardedSimpleTab = guardedDNSModal.locator('.n-tabs-tab', { hasText: '简单模式' })
@@ -442,7 +454,9 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await clickVisibleOption(page, 'SG-01')
     await fixedGroupModal.getByRole('button', { name: '应用到配置' }).click()
     await expect(groupItem.getByText('SG-01', { exact: true })).toBeVisible()
-    await page.getByTestId('nodes-card').getByRole('button', { name: '编辑原文' }).click()
+    // 原文编辑收进溢出菜单：它是高级逃生口，不该和"导入节点"抢卡片头的位置
+    await page.getByTestId('nodes-card').getByRole('button', { name: '更多节点操作' }).click()
+    await page.locator('.n-dropdown-option').filter({ hasText: '编辑原文' }).click()
     const nodeSourceModal = page.locator('.n-modal', { hasText: '编辑节点原文' })
     await expect(nodeSourceModal).toBeVisible()
     await expect(page).toHaveURL(/\/proxy$/)
@@ -522,7 +536,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await ruleModal.getByRole('button', { name: '应用到配置' }).click()
     await expect(routing.getByText(compoundMatch, { exact: true })).toBeVisible()
 
-    await routing.getByRole('button', { name: '编辑路由' }).click()
+    await routing.locator('.n-card-header__extra').getByRole('button', { name: '编辑', exact: true }).click()
     const routingModal = page.getByTestId('routing-editor-modal')
     const advancedTab = routingModal.locator('.n-tabs-tab', { hasText: '高级模式' })
     const simpleTab = routingModal.locator('.n-tabs-tab', { hasText: '简单模式' })
@@ -535,7 +549,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await routingModal.getByRole('button', { name: '取消' }).click()
     await expect(routing.getByText('domain(geosite:cn)')).toBeVisible()
 
-    await routing.getByRole('button', { name: '编辑路由' }).click()
+    await routing.locator('.n-card-header__extra').getByRole('button', { name: '编辑', exact: true }).click()
     const reopenedRoutingModal = page.getByTestId('routing-editor-modal')
     await reopenedRoutingModal.locator('.n-tabs-tab', { hasText: '简单模式' }).click()
     await reopenedRoutingModal.getByRole('button', { name: '应用到配置' }).click()
@@ -582,9 +596,10 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(page.locator('.dash-service')).toContainText('dae 运行中')
     await expect(page.locator('.dash-service')).toContainText('v1.0.6')
     await expect(page.locator('.dash-card .n-skeleton')).toHaveCount(0)
-    // 暂停等破坏性操作收进窄栏的"更多"菜单，避免与"无损重载"平起平坐
-    await page.getByRole('button', { name: '更多服务操作' }).click()
-    await page.locator('.n-dropdown-option').filter({ hasText: '暂停' }).click()
+    // 服务控制直接摆在窄栏上：它们是用户到这一页来做的事，不该多一次点击。
+    // 破坏性的"停止"用危险色区分，防误触靠确认对话框而不是藏起来。
+    await expect(page.locator('.dash-service').getByRole('button', { name: '停止' })).toBeVisible()
+    await page.locator('.dash-service').getByRole('button', { name: '暂停' }).click()
     await page.getByRole('button', { name: '确认暂停' }).click()
     await expect(page.locator('.dash-service')).toContainText('dae 已暂停')
     // 提示条只解释暂停意味着什么，状态本身由窄栏陈述，不重复告警
@@ -1069,6 +1084,23 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
   await test.step('连接活动分别展示历史流水与实时出站端点', async () => {
     const reference = Date.now()
     const at = (secondsAgo: number) => new Date(reference - secondsAgo * 1000).toISOString()
+    // 秒级快照端点也要受控：否则它会用真实（全零）数据覆盖上面 mock 的
+    // socket 峰值与端点，让断言时灵时不灵。
+    await page.route('**/api/v1/connections/snapshot', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        snapshotAt: at(0), snapshotOk: true, serviceRunning: true, socketWindowSeconds: 30,
+        summary: { outboundTcp: 32, udpSockets: 1, sampledTcpPeak: 38, sampledUdpPeak: 4 },
+        // 必须与完整端点返回同一份：真实系统里两者来自同一次采样，给不同的
+        // 数据会让秒级轮询把完整端点的结果覆盖掉，断言时灵时不灵。
+        endpoints: [
+          { address: '144.34.225.42:30128', count: 26 },
+          { address: '223.6.6.6:443', count: 4 },
+          { address: '38.55.107.116:443', count: 2 },
+          { address: '203.0.113.90:8443', count: 1 },
+        ],
+      }),
+    }))
     await page.route('**/api/v1/connections?*', (route) => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -1150,18 +1182,25 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     }))
     await page.goto('/connections')
     await expect(page.getByRole('heading', { name: '连接活动', level: 2 })).toBeVisible()
-    await expect(page.locator('.connection-pulse')).toContainText('32当前 TCP 出站')
-    await expect(page.locator('.connection-snapshot-note')).toContainText('近 30 秒已采样峰值：TCP 38 · UDP 4')
+    // 头条是日志流水而不是 socket 点采样：后者在 dae 的架构下几乎总是 0
+    await expect(page.locator('.connection-pulse-primary')).toContainText('205')
+    await expect(page.locator('.connection-pulse-primary')).toContainText('最近 15 分钟新建连接')
+    // socket 数据降为次要一格，并如实称作采样峰值
+    await expect(page.locator('.connection-pulse-metrics')).toContainText('dae socket 峰值 TCP · UDP')
+    await expect(page.locator('.connection-pulse-metrics')).toContainText('38 · 4')
+    await expect(page.locator('.connection-snapshot-note')).toContainText('socket 峰值取自近 30 秒内的离散采样')
+    // 一个永远停在同一态的指示灯不是指示灯
+    await expect(page.locator('.connection-live-beacon')).toHaveCount(0)
     await expect(page.locator('.connection-facet-row', { hasText: 'api.github.com' })).toBeVisible()
     await page.locator('.connection-facet-row', { hasText: 'api.github.com' }).click()
     await expect(page.locator('tbody tr')).toHaveCount(1)
     await page.locator('.connection-facet-row', { hasText: 'api.github.com' }).click()
     await expect(page.locator('tbody tr')).toHaveCount(5)
-    await page.locator('.connection-facet-modes .n-radio-button', { hasText: '客户端' }).click()
+    await page.locator('.connection-facet-modes .tab-switch-item', { hasText: '客户端' }).click()
     await page.locator('.connection-facet-row', { hasText: '192.168.31.10' }).click()
     await expect(page.locator('tbody tr')).toHaveCount(2)
     await page.locator('.connection-facet-row', { hasText: '192.168.31.10' }).click()
-    await page.locator('.connection-facet-modes .n-radio-button', { hasText: '目标' }).click()
+    await page.locator('.connection-facet-modes .tab-switch-item', { hasText: '目标' }).click()
     await page.getByRole('button', { name: 'TCP 端点 4' }).click()
     await expect(page.locator('.n-drawer').getByText('203.0.113.90:8443')).toBeVisible()
     await page.keyboard.press('Escape')
@@ -1211,6 +1250,14 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
     await page.unroute('**/api/v1/connections?*')
+    await page.route('**/api/v1/connections/snapshot', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        snapshotAt: at(0), snapshotOk: true, serviceRunning: true, socketWindowSeconds: 30,
+        summary: { outboundTcp: 0, udpSockets: 0, sampledTcpPeak: 0, sampledUdpPeak: 0 },
+        endpoints: [],
+      }),
+    }))
     await page.route('**/api/v1/connections?*', (route) => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -1230,7 +1277,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(page.getByText(/启用 debug 会增加日志量和运行开销/)).toBeVisible()
     await expect(page.getByRole('button', { name: '切换为 debug' })).toBeVisible()
     await expect(page.getByText('当前日志级别不记录连接建立流水')).toBeVisible()
-    await expect(page.locator('.connection-pulse').getByText('未捕获', { exact: true })).toHaveCount(3)
+    await expect(page.locator('.connection-pulse-metrics').getByText('未捕获', { exact: true })).toHaveCount(1)
     await expect(page.locator('.connection-snapshot-note')).toContainText('“未捕获”不代表没有代理流量')
     await expect(page.getByRole('button', { name: 'TCP 端点 未捕获' })).toBeDisabled()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -1288,10 +1335,24 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await page.goto('/diagnostics')
     await expect(page.getByRole('heading', { name: '故障诊断', level: 2 })).toBeVisible()
     await expect(page.getByText('基础检查通过，但有需要确认的项目')).toBeVisible()
-    await expect(page.getByText('当前配置已通过 dae validate')).toBeVisible()
+    // 需要处理的两项（注意 + 未知）完整展开；七项正常收成一行，排障时不必先扫过它们
+    await expect(page.locator('.diagnostic-item')).toHaveCount(2)
     await expect(page.getByText('如果路由使用 geosite，请先到 Geo 数据页更新数据')).toBeVisible()
-    await expect(page.locator('.diagnostic-item')).toHaveCount(6)
-    await expectCardsAligned(page.locator('.diagnostic-item'))
+    // 通过的检查默认收起，且行内只留标题——"当前配置 / 当前配置已通过 dae validate"
+    // 是同义反复，占着宽度不给信息
+    await expect(page.getByRole('button', { name: '当前配置' })).toHaveCount(0)
+    await page.getByRole('button', { name: /4 项检查正常/ }).click()
+    await expect(page.getByRole('button', { name: '当前配置' })).toBeVisible()
+    await expect(page.getByText('当前配置已通过 dae validate')).toHaveCount(0)
+    // 明细仍然逐项可展开：收起是为了不占版面，不是藏起来
+    await page.getByRole('button', { name: '当前配置' }).click()
+    await expect(page.getByText('路径：/etc/dae/config.dae')).toBeVisible()
+    await page.getByRole('button', { name: /4 项检查正常/ }).click()
+    // 顶部计数是筛选器
+    await page.locator('.diagnostics-count').filter({ hasText: '注意' }).click()
+    await expect(page.locator('.diagnostic-item')).toHaveCount(1)
+    await page.getByRole('button', { name: '显示全部' }).click()
+    await expect(page.locator('.diagnostic-item')).toHaveCount(2)
     await capture(page, 'diagnostics.png', 1600, 1120)
   })
 
@@ -1338,7 +1399,9 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(mobileGroupModal.locator('.group-fixed-node-hint')).toBeVisible()
     await mobileGroupModal.getByRole('button', { name: '取消' }).click()
 
-    await page.getByTestId('global-card').getByRole('button', { name: '编辑设置' }).click()
+    await page.getByTestId('global-card').locator('.fold-card-toggle').click()
+    await page.getByTestId('global-card').locator('.fold-card-actions')
+      .getByRole('button', { name: '编辑' }).click()
     const globalModal = page.getByTestId('global-editor-modal')
     const globalModalBox = await globalModal.boundingBox()
     expect(globalModalBox).not.toBeNull()
@@ -1348,7 +1411,9 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     expect(await globalModal.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
     await globalModal.getByRole('button', { name: '取消' }).click()
 
-    await page.getByTestId('dns-card').getByRole('button', { name: '编辑 DNS' }).click()
+    await page.getByTestId('dns-card').locator('.fold-card-toggle').click()
+    await page.getByTestId('dns-card').locator('.fold-card-actions')
+      .getByRole('button', { name: '编辑' }).click()
     const dnsModal = page.getByTestId('dns-editor-modal')
     const dnsModalBox = await dnsModal.boundingBox()
     expect(dnsModalBox).not.toBeNull()
@@ -1358,7 +1423,8 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     expect(await dnsModal.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
     await dnsModal.getByRole('button', { name: '取消' }).click()
 
-    await page.getByTestId('routing-card').getByRole('button', { name: '编辑路由' }).click()
+    await page.getByTestId('routing-card').locator('.n-card-header__extra')
+      .getByRole('button', { name: '编辑', exact: true }).click()
     const routingModal = page.getByTestId('routing-editor-modal')
     const modalBox = await routingModal.boundingBox()
     expect(modalBox).not.toBeNull()
@@ -1437,9 +1503,9 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
 
     await page.goto('/diagnostics')
     await expect(page.getByRole('heading', { name: '故障诊断', level: 2 })).toBeVisible()
-    await expect(page.locator('.diagnostic-item')).toHaveCount(6)
+    await expect(page.locator('.diagnostic-item')).toHaveCount(2)
     const diagnosticsPageBox = await page.locator('.diagnostics-page').boundingBox()
-    const finalDiagnosticBox = await page.locator('.diagnostic-item').last().boundingBox()
+    const finalDiagnosticBox = await page.locator('.diagnostics-healthy').boundingBox()
     const fullLogsButton = page.getByRole('button', { name: '查看完整运行日志' })
     const fullLogsButtonBox = await fullLogsButton.boundingBox()
     expect(diagnosticsPageBox).not.toBeNull()
@@ -1535,11 +1601,8 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(suspendedAlert).toBeVisible()
     await expect(suspendedAlert.getByText('代理流量处理已停止，但 dae 进程仍在运行；点击“无损重载”即可恢复。')).toBeVisible()
     expect(await suspendedAlert.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
-    // 暂停已在暂停态下不可再点：操作收进窄栏的"更多"菜单
-    await page.getByRole('button', { name: '更多服务操作' }).click()
-    const suspendOption = page.locator('.n-dropdown-option').filter({ hasText: '暂停' })
-    await expect(suspendOption.locator('.n-dropdown-option-body')).toHaveClass(/--disabled/)
-    await page.keyboard.press('Escape')
+    // 已经是暂停态，"暂停"不可再点
+    await expect(page.locator('.dash-service').getByRole('button', { name: '暂停' })).toBeDisabled()
     await page.getByRole('button', { name: '无损重载' }).click()
     await expect(suspendedAlert).toHaveCount(0)
     overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)

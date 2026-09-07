@@ -3,6 +3,7 @@ import { computed, h, onMounted, ref } from 'vue'
 import {
   NAlert,
   NButton,
+  NDropdown,
   NCard,
   NDataTable,
   NEmpty,
@@ -341,6 +342,14 @@ const scheduleSummary = computed(() => {
 })
 
 onMounted(() => void loadSchedule())
+const subOverflowOptions = [
+  { label: '自动刷新设置', key: 'schedule' },
+  { label: '编辑原文', key: 'source' },
+]
+function onSubOverflow(key: string) {
+  if (key === 'schedule') openSchedule()
+  if (key === 'source') sourceVisible.value = true
+}
 </script>
 
 <template>
@@ -348,15 +357,12 @@ onMounted(() => void loadSchedule())
     <template #header-extra>
       <NSpace size="small" align="center">
         <NTag size="small" :bordered="false">{{ subscriptions.length }} 个</NTag>
-        <NButton size="small" quaternary :loading="refreshing" :disabled="subscriptions.length === 0" @click="confirmRefreshNow">
+        <NButton size="small" secondary :loading="refreshing" :disabled="subscriptions.length === 0" @click="confirmRefreshNow">
           <template #icon><NIcon><RefreshOutline /></NIcon></template>立即刷新
         </NButton>
-        <NButton size="small" quaternary @click="openSchedule">
-          <template #icon><NIcon><TimerOutline /></NIcon></template>自动刷新
-        </NButton>
-        <NButton size="small" quaternary @click="sourceVisible = true">
-          <template #icon><NIcon><CreateOutline /></NIcon></template>编辑原文
-        </NButton>
+        <NDropdown trigger="click" :options="subOverflowOptions" @select="onSubOverflow">
+          <NButton size="small" quaternary aria-label="更多订阅操作">⋯</NButton>
+        </NDropdown>
       </NSpace>
     </template>
     <div class="orchestrate-add" data-testid="subscription-add">
@@ -371,7 +377,7 @@ onMounted(() => void loadSchedule())
           placeholder="请求 UA"
           class="subscription-ua-select"
         />
-        <NButton type="primary" ghost :loading="preparing" @click="addSubscription">
+        <NButton type="primary" :loading="preparing" @click="addSubscription">
           <template #icon><NIcon><AddOutline /></NIcon></template>添加
         </NButton>
       </NInputGroup>

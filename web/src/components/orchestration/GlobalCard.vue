@@ -4,6 +4,7 @@ import {
   NAlert,
   NButton,
   NCard,
+  NDropdown,
   NCollapse,
   NCollapseItem,
   NIcon,
@@ -227,24 +228,33 @@ function applyEditor() {
   }
 }
 
+// 收起时这行字要说清里面有什么，否则用户不敢不展开
+const foldSummary = computed(() => {
+  const shown = summaries.value.filter((item) => item.explicit).slice(0, 3)
+    .map((item) => `${item.label} ${item.value}`)
+  return shown.length ? shown.join(' · ') : `${configuredCount.value} 项已配置`
+})
+const overflowOptions = [{ label: '编辑原文', key: 'source' }]
+function onOverflow(key: string) {
+  if (key === 'source') sourceVisible.value = true
+}
+
 onMounted(() => {
   void loadCapabilities()
   void loadInterfaces()
 })
+import FoldableCard from './FoldableCard.vue'
 </script>
 
 <template>
-  <NCard title="全局设置" class="panel-card global-card" data-testid="global-card">
-    <template #header-extra>
-      <NSpace size="small" align="center">
-        <NTag size="small" :bordered="false">{{ configuredCount }} 项</NTag>
-        <NButton size="small" secondary @click="openEditor">
-          <template #icon><NIcon><OptionsOutline /></NIcon></template>编辑设置
-        </NButton>
-        <NButton size="small" quaternary @click="sourceVisible = true">
-          <template #icon><NIcon><CodeSlashOutline /></NIcon></template>编辑原文
-        </NButton>
-      </NSpace>
+  <FoldableCard title="全局设置" :summary="foldSummary" testid="global-card">
+    <template #actions>
+      <NButton size="small" secondary @click="openEditor">
+        <template #icon><NIcon><OptionsOutline /></NIcon></template>编辑
+      </NButton>
+      <NDropdown trigger="click" :options="overflowOptions" @select="onOverflow">
+        <NButton size="small" quaternary aria-label="更多全局设置操作">⋯</NButton>
+      </NDropdown>
     </template>
 
     <div class="global-summary-grid">
@@ -265,7 +275,7 @@ onMounted(() => {
     >
       有复杂、重复或无法识别的全局声明，结构化表单会锁定相关字段；可使用“编辑原文”处理。
     </NAlert>
-  </NCard>
+  </FoldableCard>
 
   <NModal
     v-model:show="editorVisible"

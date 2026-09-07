@@ -444,6 +444,26 @@ export interface ConnectionFacets {
   groups: ConnectionFacet[]
 }
 
+/**
+ * 只带 socket 相关字段的轻量快照，供页面按秒轮询。峰值与端点都取自采样窗口，
+ * 采样越密这两个数越有意义；日志流水、分面与曲线不随秒级采样变化，因此不在
+ * 这个响应里重复传输。
+ */
+export interface ConnectionSnapshot {
+  snapshotAt: string
+  snapshotOk: boolean
+  serviceRunning: boolean
+  socketWindowSeconds: number
+  truncated?: boolean
+  summary: {
+    outboundTcp: number
+    udpSockets: number
+    sampledTcpPeak: number
+    sampledUdpPeak: number
+  }
+  endpoints: ConnectionEndpoint[]
+}
+
 export interface ConnectionsResponse {
   snapshotAt: string
   snapshotOk: boolean

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { NAlert, NButton, NDropdown, NIcon, NPopconfirm, NSkeleton, NTag, NText, useDialog, useMessage } from 'naive-ui'
+import { NAlert, NButton, NIcon, NSkeleton, NTag, NText, useDialog, useMessage } from 'naive-ui'
 import { PauseOutline, PlayOutline, RefreshOutline, ReloadOutline, StopOutline } from '@vicons/ionicons5'
 import { RouterLink } from 'vue-router'
 import { APIError, getJSON, postJSON } from '../api/client'
@@ -399,12 +399,6 @@ function enableTelemetry() {
   })
 }
 
-const moreActions = computed(() => [
-  { label: '重启 dae', key: 'restart', disabled: !running.value },
-  { label: '暂停', key: 'suspend', disabled: !running.value || suspended.value },
-  { label: '停止', key: 'stop', disabled: !running.value },
-])
-
 function onMoreAction(key: string) {
   const copy: Record<string, string> = {
     restart: '重启会中断现有连接，确认继续？',
@@ -461,17 +455,31 @@ watch(() => outbounds.value.map((row) => row.target && `${row.target.host}:${row
         </template>
       </div>
       <div class="dash-service-actions">
+        <!-- 启动与无损重载是同一个位置的互斥两态：没跑就启动，跑着就重载。
+             重启/暂停/停止则常驻，不可用时禁用。 -->
         <NButton v-if="!running" type="primary" size="small" :loading="actionLoading === 'start'"
                  :disabled="actionLoading !== ''" @click="runAction('start')">
           <template #icon><NIcon><PlayOutline /></NIcon></template>启动 dae
         </NButton>
-        <NButton v-else secondary type="primary" size="small" :loading="actionLoading === 'reload'"
+        <NButton v-else type="primary" size="small" :loading="actionLoading === 'reload'"
                  :disabled="actionLoading !== ''" @click="runAction('reload')">
           <template #icon><NIcon><ReloadOutline /></NIcon></template>无损重载
         </NButton>
-        <NDropdown trigger="click" :options="moreActions" @select="onMoreAction">
-          <NButton quaternary size="small" aria-label="更多服务操作">⋯</NButton>
-        </NDropdown>
+        <!-- 服务控制是这一页的核心动作，不该被折进溢出菜单：每次重启或暂停
+             都多一次点击，而它们本来就是用户到这一页来做的事。破坏性的
+             "停止"用危险色区分，不靠藏起来防误触——确认对话框才是防线。 -->
+        <NButton size="small" secondary :disabled="actionLoading !== '' || !running"
+                 :loading="actionLoading === 'restart'" @click="onMoreAction('restart')">
+          <template #icon><NIcon><RefreshOutline /></NIcon></template>重启
+        </NButton>
+        <NButton size="small" secondary :disabled="actionLoading !== '' || !running || suspended"
+                 :loading="actionLoading === 'suspend'" @click="onMoreAction('suspend')">
+          <template #icon><NIcon><PauseOutline /></NIcon></template>暂停
+        </NButton>
+        <NButton size="small" quaternary type="error" :disabled="actionLoading !== '' || !running"
+                 :loading="actionLoading === 'stop'" @click="onMoreAction('stop')">
+          <template #icon><NIcon><StopOutline /></NIcon></template>停止
+        </NButton>
         <NButton quaternary circle size="small" :loading="refreshing" title="刷新" aria-label="刷新"
                  @click="refreshAll(true)">
           <template #icon><NIcon><RefreshOutline /></NIcon></template>
@@ -661,7 +669,7 @@ watch(() => outbounds.value.map((row) => row.target && `${row.target.host}:${row
         </div>
         <ul v-else class="dash-attention">
           <li v-for="item in attention" :key="item.id">
-            <span class="dash-dot" :class="`tone-${item.tone === 'info' ? 'accent' : item.tone}`" />
+            <span class="dash-dot" :class="`tone-${item.tone}`" />
             <div>
               <strong>{{ item.title }}</strong>
               <small v-if="item.detail">{{ item.detail }}</small>

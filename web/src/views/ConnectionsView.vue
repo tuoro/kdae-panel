@@ -10,8 +10,6 @@ import {
   NEmpty,
   NIcon,
   NInput,
-  NRadioButton,
-  NRadioGroup,
   NSelect,
   NSpace,
   NSpin,
@@ -32,7 +30,7 @@ import {
 } from '@vicons/ionicons5'
 import { getJSON } from '../api/client'
 import { useMobileViewport } from '../composables/useMobileViewport'
-import type { ConnectionEvent, ConnectionFacet, ConnectionFacets, ConnectionsResponse } from '../types/api'
+import type { ConnectionEvent, ConnectionFacet, ConnectionFacets, ConnectionSnapshot, ConnectionsResponse } from '../types/api'
 import { formatDateTime, formatElapsedSince } from '../utils/format'
 import { updateDaeLogLevel, type DaeLogLevel } from '../utils/loglevel'
 
@@ -58,7 +56,9 @@ const selectedFacet = ref<{ dimension: keyof ConnectionFacets, id: string } | nu
 const sortOrder = ref<'descend' | 'ascend'>('descend')
 const now = ref(Date.now())
 let refreshTimer: number | undefined
+let snapshotTimer: number | undefined
 let clockTimer: number | undefined
+let snapshotInFlight = false
 let reloadQueued = false
 
 const limitOptions = [100, 200, 500, 1000, 2000].map((value) => ({ label: `${value} 条`, value }))
@@ -94,13 +94,20 @@ const entries = computed(() => data.value?.entries ?? [])
 const summary = computed(() => data.value?.summary)
 const snapshotLabel = computed(() => data.value?.snapshotAt ? formatDateTime(data.value.snapshotAt) : '等待快照')
 const socketReadable = computed(() => Boolean(data.value?.serviceRunning && data.value.snapshotOk))
-const tcpSocketCaptured = computed(() => socketReadable.value && (summary.value?.outboundTcp ?? 0) > 0)
-const udpSocketCaptured = computed(() => socketReadable.value && (summary.value?.udpSockets ?? 0) > 0)
-const hasCurrentSockets = computed(() => tcpSocketCaptured.value || udpSocketCaptured.value)
 const hasRecentSocketSamples = computed(() => socketReadable.value &&
   ((summary.value?.sampledTcpPeak ?? 0) > 0 || (summary.value?.sampledUdpPeak ?? 0) > 0))
-const tcpSocketValue = computed(() => visibleSocketCount(summary.value?.outboundTcp))
-const udpSocketValue = computed(() => visibleSocketCount(summary.value?.udpSockets))
+// 头条跟着所选时间窗走，不写死
+const windowLabel = computed(() =>
+  windowOptions.find((option) => option.value === windowMinutes.value)?.label ?? '所选时段')
+// 峰值取的是 30 秒窗口内所有离散采样的最大值。"当前"是单次点采样，在 dae 的
+// 架构下几乎总是 0——直连走 eBPF 不产生 userspace socket，代理短连接在两次
+// 采样之间生灭。同一份数据，峰值是唯一站得住的说法。
+const socketPeakValue = computed(() => {
+  if (!socketReadable.value) return visibleSocketCount(undefined)
+  const tcp = summary.value?.sampledTcpPeak ?? 0
+  const udp = summary.value?.sampledUdpPeak ?? 0
+  return tcp > 0 || udp > 0 ? `${tcp} · ${udp}` : '未捕获'
+})
 const endpointCountValue = computed(() => {
   if (!data.value) return '—'
   if (!data.value.serviceRunning) return '未运行'
@@ -113,9 +120,9 @@ const socketSnapshotNote = computed(() => {
   if (!data.value.snapshotOk) return '暂时无法读取 dae 进程的 socket 快照。'
   const seconds = Math.max(1, data.value.socketWindowSeconds)
   const peak = hasRecentSocketSamples.value
-    ? `近 ${seconds} 秒已采样峰值：TCP ${summary.value?.sampledTcpPeak ?? 0} · UDP ${summary.value?.sampledUdpPeak ?? 0}。`
+    ? `socket 峰值取自近 ${seconds} 秒内的离散采样。`
     : `近 ${seconds} 秒的离散采样尚未捕获到 dae socket。`
-  return `${peak}这里只统计 dae 进程持有的 userspace socket；短连接、直连和 eBPF 数据面连接可能不会出现，因此“未捕获”不代表没有代理流量。`
+  return `${peak}这里只统计 dae 进程持有的 userspace socket；短连接、直连和 eBPF 数据面连接不会出现，因此“未捕获”不代表没有代理流量——上方的新建连接才是完整的口径。`
 })
 const activeFilterCount = computed(() => Number(!!outbound.value) + Number(!!network.value) + Number(!!selectedFacet.value))
 const facetItems = computed(() => data.value?.facets[facetDimension.value] ?? [])
@@ -337,6 +344,32 @@ async function load(silent = false) {
   }
 }
 
+// socket 峰值与端点都取自 30 秒窗口内的离散采样。跟着 5 秒的完整轮询走只能
+// 凑出六个样本，而 dae 的 socket 本就难在单次采样里抓到——所以单独按秒轮询
+// 一个只做快照的轻端点（完整端点每次还要跑 systemctl、拉 journald、解析日志）。
+// 只在页面可见时跑：这是真实的 /proc 扫描开销，不该在后台标签页里持续发生。
+async function loadSnapshot() {
+  if (snapshotInFlight || !data.value) return
+  snapshotInFlight = true
+  try {
+    const snapshot = await getJSON<ConnectionSnapshot>('/api/v1/connections/snapshot')
+    if (!data.value) return
+    data.value = {
+      ...data.value,
+      snapshotAt: snapshot.snapshotAt,
+      snapshotOk: snapshot.snapshotOk,
+      serviceRunning: snapshot.serviceRunning,
+      socketWindowSeconds: snapshot.socketWindowSeconds,
+      endpoints: snapshot.endpoints,
+      summary: { ...data.value.summary, ...snapshot.summary },
+    }
+  } catch {
+    // 快照失败不该打断流水：完整轮询仍会在 5 秒后纠正这里的状态
+  } finally {
+    snapshotInFlight = false
+  }
+}
+
 async function enableConnectionHistory(targetLevel: DaeLogLevel) {
   logLevelSaving.value = true
   try {
@@ -375,11 +408,15 @@ onMounted(() => {
   refreshTimer = window.setInterval(() => {
     if (autoRefresh.value && document.visibilityState === 'visible') void load(true)
   }, 5000)
+  snapshotTimer = window.setInterval(() => {
+    if (autoRefresh.value && document.visibilityState === 'visible') void loadSnapshot()
+  }, 1000)
   clockTimer = window.setInterval(() => { now.value = Date.now() }, 1000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 onBeforeUnmount(() => {
   window.clearInterval(refreshTimer)
+  window.clearInterval(snapshotTimer)
   window.clearInterval(clockTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
@@ -418,17 +455,22 @@ onBeforeUnmount(() => {
     </NAlert>
 
     <section class="connection-snapshot-summary" aria-label="连接摘要">
+      <!-- 头条用日志流水而不是 socket 点采样：后者在 dae 的架构下几乎总是 0，
+           把它放在第一位等于让整页最显眼的数字常年停在"未捕获"。删掉实时信标
+           同理——它的绿/黄/灰三态里有两态几乎不会出现，一个永远停在同一态的
+           指示灯不是指示灯。socket 数据降为次要一格，并如实称作采样峰值。 -->
       <div class="connection-pulse">
         <div class="connection-pulse-primary">
-          <span class="connection-live-beacon" :class="{ muted: !hasCurrentSockets, recent: !hasCurrentSockets && hasRecentSocketSamples }"></span>
-          <strong :class="{ textual: !tcpSocketCaptured }">{{ tcpSocketValue }}</strong>
-          <span class="connection-pulse-primary-label">当前 TCP 出站</span>
+          <strong>{{ summary?.windowEvents ?? '—' }}</strong>
+          <span class="connection-pulse-primary-label">{{ windowLabel }}新建连接</span>
         </div>
         <dl class="connection-pulse-metrics">
-          <div><dt>当前 UDP</dt><dd :class="{ textual: !udpSocketCaptured }">{{ udpSocketValue }}</dd></div>
-          <div><dt>新建连接</dt><dd>{{ summary?.windowEvents ?? '—' }}</dd></div>
           <div><dt>客户端</dt><dd>{{ summary?.windowClients ?? '—' }}</dd></div>
           <div><dt>目标</dt><dd>{{ summary?.windowTargets ?? '—' }}</dd></div>
+          <div>
+            <dt>dae socket 峰值 TCP · UDP</dt>
+            <dd :class="{ textual: socketPeakValue === '未捕获' || !socketReadable }">{{ socketPeakValue }}</dd>
+          </div>
         </dl>
         <NButton
           text
@@ -477,17 +519,24 @@ onBeforeUnmount(() => {
             <strong>活动分布</strong>
             <small>所选时段内的新建连接</small>
           </div>
-          <NRadioGroup
-            v-if="!mobile"
-            :value="facetDimension"
-            size="small"
-            class="connection-facet-modes"
-            @update:value="changeFacetDimension"
-          >
-            <NRadioButton v-for="option in facetOptions" :key="option.value" :value="option.value">
+          <!-- 维度切换用标签页而不是分段按钮组：它只是切视图，不该长成一组按钮。
+               分段器的外框会带出一根分隔线，naive-ui 把它染成 primaryColor，
+               在深色底上放大后是一道发光竖条——去掉外框，这个问题就不存在了。
+               写法与全站顶部的 section-tab 一致，同一个动作在各处长同一个样。 -->
+          <div v-if="!mobile" class="tab-switch connection-facet-modes" role="tablist" aria-label="活动分布维度">
+            <button
+              v-for="option in facetOptions"
+              :key="option.value"
+              type="button"
+              role="tab"
+              class="tab-switch-item"
+              :class="{ active: facetDimension === option.value }"
+              :aria-selected="facetDimension === option.value"
+              @click="changeFacetDimension(option.value)"
+            >
               {{ option.label }}
-            </NRadioButton>
-          </NRadioGroup>
+            </button>
+          </div>
         </header>
 
         <div v-if="!mobile" class="connection-facet-desktop">
@@ -634,15 +683,18 @@ onBeforeUnmount(() => {
       :width="mobile ? undefined : 420"
       :height="mobile ? '72vh' : undefined"
     >
-      <NDrawerContent title="当前可见 TCP 端点" closable :native-scrollbar="false">
-        <NText depth="3" class="connection-drawer-description">dae 当前持有的 TCP socket，按远端 IP:端口聚合</NText>
+      <NDrawerContent title="近 30 秒采样到的远端端点" closable :native-scrollbar="false">
+        <NText depth="3" class="connection-drawer-description">
+          dae 持有的 TCP socket，按远端 IP:端口聚合，取采样窗口内每个端点的峰值。
+          单次点采样几乎抓不到——直连不产生 userspace socket，代理短连接在两次采样之间生灭。
+        </NText>
         <div v-if="data?.endpoints.length" class="connection-endpoint-drawer-list">
           <div v-for="endpoint in data?.endpoints ?? []" :key="endpoint.address" class="connection-endpoint-row">
             <div><span class="mono">{{ endpoint.address }}</span><strong>{{ endpoint.count }}</strong></div>
             <span class="connection-endpoint-track"><i :style="{ width: `${Math.max(2, endpoint.count / endpointMaximum * 100)}%` }"></i></span>
           </div>
         </div>
-        <NEmpty v-else description="当前未捕获到 dae TCP 出站" />
+        <NEmpty v-else description="近 30 秒的离散采样未捕获到 dae 的 TCP 出站" />
       </NDrawerContent>
     </NDrawer>
   </div>

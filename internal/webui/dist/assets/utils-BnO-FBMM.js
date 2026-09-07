@@ -1,1 +1,0 @@
-import{An as e}from"./client-3GjT0YO-.js";function t(){return e()!==null}var n=typeof window<`u`;export{n,t};

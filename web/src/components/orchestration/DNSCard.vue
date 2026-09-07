@@ -184,20 +184,21 @@ function summaryValue(value: string, fallback: string): string {
 }
 
 onMounted(() => void loadCapabilities())
+// 收起时这行字要说清里面有什么，否则用户不敢不展开
+const foldSummary = computed(() => state.value.present
+  ? `${upstreamCount.value} 个上游 · ${requestCount.value + responseCount.value} 条规则`
+  : '尚未配置 DNS 节')
+import FoldableCard from './FoldableCard.vue'
 </script>
 
 <template>
-  <NCard title="DNS 设置" class="panel-card dns-card" data-testid="dns-card">
-    <template #header-extra>
-      <NSpace size="small" align="center">
-        <SectionVersionControls kind="dns" :body="state.body" @apply="applyVersion" />
-        <NTag v-if="!state.simpleSafe" size="small" type="warning" :bordered="false">进阶配置</NTag>
-        <NTag size="small" :bordered="false">{{ upstreamCount }} 个上游</NTag>
-        <NTag size="small" :bordered="false">{{ requestCount + responseCount }} 条规则</NTag>
-        <NButton size="small" secondary @click="openEditor">
-          <template #icon><NIcon><OptionsOutline /></NIcon></template>编辑 DNS
-        </NButton>
-      </NSpace>
+  <FoldableCard title="DNS 设置" :summary="foldSummary" testid="dns-card">
+    <template #actions>
+      <NTag v-if="!state.simpleSafe" size="small" type="warning" :bordered="false">进阶配置</NTag>
+      <SectionVersionControls kind="dns" :body="state.body" @apply="applyVersion" />
+      <NButton size="small" secondary @click="openEditor">
+        <template #icon><NIcon><OptionsOutline /></NIcon></template>编辑
+      </NButton>
     </template>
 
     <NAlert v-if="unsupported.length > 0" type="error" :bordered="false" class="dns-card-alert">
@@ -326,5 +327,5 @@ onMounted(() => void loadCapabilities())
         </NSpace>
       </template>
     </NModal>
-  </NCard>
+  </FoldableCard>
 </template>

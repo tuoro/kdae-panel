@@ -32,6 +32,10 @@ const (
 	kdaeDebugLogRevision      = 1148
 	connectionLogLevelRetry   = 30 * time.Second
 	minimumCommitIDLength     = 6
+	// 快照端点按秒轮询，但 MainPID 只在 dae 重启时才变。每次都跑一遍
+	// systemctl show 等于每秒 fork 一个进程，对小机器不划算；缓存过期的
+	// PID 会让 /proc 读取失败并如实报 snapshotOk=false，下一轮自动纠正。
+	connectionPIDCacheTTL = 5 * time.Second
 )
 
 const (
@@ -74,6 +78,25 @@ type connectionFacets struct {
 	Clients []connectionFacet `json:"clients"`
 	Nodes   []connectionFacet `json:"nodes"`
 	Groups  []connectionFacet `json:"groups"`
+}
+
+type connectionSocketSummary struct {
+	OutboundTCP    int `json:"outboundTcp"`
+	UDPSockets     int `json:"udpSockets"`
+	SampledTCPPeak int `json:"sampledTcpPeak"`
+	SampledUDPPeak int `json:"sampledUdpPeak"`
+}
+
+// connectionSnapshotResponse 只带 socket 相关字段：日志流水、分面与曲线
+// 都不随秒级采样变化，重复传输没有意义。
+type connectionSnapshotResponse struct {
+	SnapshotAt          time.Time               `json:"snapshotAt"`
+	SnapshotOK          bool                    `json:"snapshotOk"`
+	ServiceRunning      bool                    `json:"serviceRunning"`
+	SocketWindowSeconds int                     `json:"socketWindowSeconds"`
+	Truncated           bool                    `json:"truncated,omitempty"`
+	Summary             connectionSocketSummary `json:"summary"`
+	Endpoints           []connectionEndpoint    `json:"endpoints"`
 }
 
 type connectionsResponse struct {
@@ -130,6 +153,14 @@ type connectionTracker struct {
 	store         *daeconn.Store
 	levelMu       sync.Mutex
 	levelCache    connectionLogLevelCache
+	pidMu         sync.Mutex
+	pidCache      connectionPIDCache
+}
+
+type connectionPIDCache struct {
+	status    host.Status
+	ok        bool
+	fetchedAt time.Time
 }
 
 func registerConnectionRoutes(
@@ -148,6 +179,60 @@ func registerConnectionRoutes(
 		snapshotter: snapshotter, store: daeconn.NewStore(),
 	}
 	router.HandleFunc("GET /api/v1/connections", tracker.handle)
+	router.HandleFunc("GET /api/v1/connections/snapshot", tracker.handleSnapshot)
+}
+
+// handleSnapshot 只采集 socket 快照，供页面按秒轮询。完整端点每次都要跑
+// systemctl、拉 journald、解析日志并读配置，按秒跑一遍不可接受。
+//
+// 拆出来是为了让采样窗口有意义：峰值与端点都取自 RecentSampleWindow 内的
+// 离散采样，五秒一次只能凑出六个样本，而 dae 的 socket 本就难在单次采样里
+// 抓到——直连走 eBPF 不产生 userspace socket，代理短连接在两次采样之间生灭。
+func (tracker *connectionTracker) handleSnapshot(writer http.ResponseWriter, request *http.Request) {
+	if tracker.host == nil {
+		writeAPIError(writer, http.StatusServiceUnavailable, "host_service_unavailable", "主机服务管理尚未初始化")
+		return
+	}
+	status, statusOK := tracker.serviceStatus(request.Context())
+
+	var snapshot daeconn.Snapshot
+	snapshotOK := false
+	if statusOK {
+		if taken, err := tracker.snapshotter.Snapshot(request.Context(), status.MainPID); err == nil {
+			snapshot, snapshotOK = taken, true
+		}
+	}
+	snapshotAt := snapshot.TakenAt
+	if snapshotAt.IsZero() {
+		snapshotAt = time.Now().UTC()
+	}
+	writeJSON(writer, http.StatusOK, connectionSnapshotResponse{
+		SnapshotAt:          snapshotAt,
+		SnapshotOK:          snapshotOK,
+		ServiceRunning:      statusOK && status.MainPID > 0,
+		SocketWindowSeconds: int(daeconn.RecentSampleWindow / time.Second),
+		Truncated:           snapshot.Truncated,
+		Summary: connectionSocketSummary{
+			OutboundTCP:    snapshot.OutboundTCP,
+			UDPSockets:     snapshot.UDPSockets,
+			SampledTCPPeak: snapshot.SampledTCPPeak,
+			SampledUDPPeak: snapshot.SampledUDPPeak,
+		},
+		Endpoints: sortedConnectionEndpoints(snapshot.Endpoints),
+	})
+}
+
+// serviceStatus 给快照端点用的短时缓存；完整端点仍然每次读最新状态。
+func (tracker *connectionTracker) serviceStatus(ctx context.Context) (host.Status, bool) {
+	tracker.pidMu.Lock()
+	defer tracker.pidMu.Unlock()
+	now := time.Now()
+	if !tracker.pidCache.fetchedAt.IsZero() && now.Sub(tracker.pidCache.fetchedAt) < connectionPIDCacheTTL {
+		return tracker.pidCache.status, tracker.pidCache.ok
+	}
+	status, err := tracker.host.Status(ctx)
+	tracker.pidCache = connectionPIDCache{status: status, ok: err == nil, fetchedAt: now}
+	return status, err == nil
 }
 
 // handle 分别采集历史流水和实时出站端点。任一来源临时不可用时保留另一边，

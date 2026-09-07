@@ -1,1 +1,0 @@
-var e=[],t=new WeakMap;function n(){e.forEach(e=>e(...t.get(e))),e=[]}function r(r,...i){t.set(r,i),!e.includes(r)&&e.push(r)===1&&requestAnimationFrame(n)}export{r as t};
