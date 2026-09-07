@@ -3,6 +3,7 @@ import { computed, h, onMounted, ref, watch } from 'vue'
 import {
   NAlert,
   NButton,
+  NDropdown,
   NCard,
   NIcon,
   NInput,
@@ -386,9 +387,9 @@ function applyGroupEdit() {
     <template #header-extra>
       <NSpace size="small" align="center">
         <NTag size="small" :bordered="false">{{ groups.length }} 个</NTag>
-        <NButton size="small" quaternary @click="sourceVisible = true">
-          <template #icon><NIcon><CreateOutline /></NIcon></template>编辑原文
-        </NButton>
+        <NDropdown trigger="click" :options="[{ label: '编辑原文', key: 'source' }]" @select="() => (sourceVisible = true)">
+          <NButton size="small" quaternary aria-label="更多分组操作">⋯</NButton>
+        </NDropdown>
       </NSpace>
     </template>
     <div class="orchestrate-add inset" data-testid="group-add">

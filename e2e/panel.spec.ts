@@ -281,7 +281,15 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     }))
     await page.goto('/proxy')
     await expect(page.getByText('检测到入口配置缺少 dns 节')).toBeVisible()
-    await expectCardsAligned(page.locator('.equal-height-grid .panel-card'))
+    // 订阅与分组不再强制等高：订阅通常只有一两行，被撑到与分组齐平后下半是
+    // 空的。两张卡仍应在同一行起始，高度则各随内容。
+    const [subscriptionBox, groupBox] = await Promise.all([
+      page.getByTestId('subscriptions-card').boundingBox(),
+      page.getByTestId('groups-card').boundingBox(),
+    ])
+    expect(subscriptionBox).not.toBeNull()
+    expect(groupBox).not.toBeNull()
+    expect(Math.abs(subscriptionBox!.y - groupBox!.y)).toBeLessThanOrEqual(1)
     for (const [toolbar, content] of [
       ['subscription-add', 'subscription-list'],
       ['group-add', 'group-list'],
@@ -295,7 +303,10 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
 
     const global = page.getByTestId('global-card')
     await expect(global).toBeVisible()
-    await global.getByRole('button', { name: '编辑设置' }).click()
+    // 全局设置默认收成一行摘要：设一次就不动的东西不占第一屏，展开才有动作
+    await expect(global.locator('.fold-card-actions')).toHaveCount(0)
+    await global.locator('.fold-card-toggle').click()
+    await global.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const globalModal = page.getByTestId('global-editor-modal')
     const logLevel = globalModal.locator('.global-field', { hasText: '日志级别' })
     const logLevelSelect = logLevel.locator('.n-base-selection')
@@ -320,9 +331,10 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(global).toContainText('auto')
 
     const dns = page.getByTestId('dns-card')
-    await expect(dns).toContainText('2 个上游')
-    await expect(dns).toContainText('4 条规则')
-    await dns.getByRole('button', { name: '编辑 DNS' }).click()
+    // 收起时那一行摘要必须说清里面有什么，否则用户不敢不展开
+    await expect(dns).toContainText('2 个上游 · 4 条规则')
+    await dns.locator('.fold-card-toggle').click()
+    await dns.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const dnsModal = page.getByTestId('dns-editor-modal')
     const dnsSimpleTab = dnsModal.locator('.n-tabs-tab', { hasText: '简单模式' })
     const dnsAdvancedTab = dnsModal.locator('.n-tabs-tab', { hasText: '进阶模式' })
@@ -373,7 +385,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await dnsModal.getByRole('button', { name: '取消' }).click()
 
     // 取消后两份草稿都应丢弃；重开看到的仍是配置正文，而不是任一未应用草稿。
-    await dns.getByRole('button', { name: '编辑 DNS' }).click()
+    await dns.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const reopenedDNSModal = page.getByTestId('dns-editor-modal')
     await reopenedDNSModal.locator('.n-tabs-tab', { hasText: '进阶模式' }).click()
     await expect(reopenedDNSModal.locator('textarea')).toHaveValue(originalDNSBody)
@@ -393,7 +405,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
 
     // 自定义 DNS 原文不应在卡片外常驻显示大段风险提示；只有准备从进阶模式
     // 转为简单模式时才提示，并要求再次确认。
-    await dns.getByRole('button', { name: '编辑 DNS' }).click()
+    await dns.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const advancedDNSModal = page.getByTestId('dns-editor-modal')
     await advancedDNSModal.locator('.n-tabs-tab', { hasText: '进阶模式' }).click()
     const safeDNSBody = await advancedDNSModal.locator('textarea').inputValue()
@@ -402,7 +414,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(dns.getByText('进阶配置', { exact: true })).toBeVisible()
     await expect(dns.getByText('当前 DNS 包含结构化编辑器未覆盖的内容')).toHaveCount(0)
 
-    await dns.getByRole('button', { name: '编辑 DNS' }).click()
+    await dns.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const guardedDNSModal = page.getByTestId('dns-editor-modal')
     const guardedAdvancedTab = guardedDNSModal.locator('.n-tabs-tab', { hasText: '进阶模式' })
     const guardedSimpleTab = guardedDNSModal.locator('.n-tabs-tab', { hasText: '简单模式' })
@@ -442,7 +454,9 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await clickVisibleOption(page, 'SG-01')
     await fixedGroupModal.getByRole('button', { name: '应用到配置' }).click()
     await expect(groupItem.getByText('SG-01', { exact: true })).toBeVisible()
-    await page.getByTestId('nodes-card').getByRole('button', { name: '编辑原文' }).click()
+    // 原文编辑收进溢出菜单：它是高级逃生口，不该和"导入节点"抢卡片头的位置
+    await page.getByTestId('nodes-card').getByRole('button', { name: '更多节点操作' }).click()
+    await page.locator('.n-dropdown-option').filter({ hasText: '编辑原文' }).click()
     const nodeSourceModal = page.locator('.n-modal', { hasText: '编辑节点原文' })
     await expect(nodeSourceModal).toBeVisible()
     await expect(page).toHaveURL(/\/proxy$/)
@@ -522,7 +536,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await ruleModal.getByRole('button', { name: '应用到配置' }).click()
     await expect(routing.getByText(compoundMatch, { exact: true })).toBeVisible()
 
-    await routing.getByRole('button', { name: '编辑路由' }).click()
+    await routing.locator('.n-card-header__extra').getByRole('button', { name: '编辑', exact: true }).click()
     const routingModal = page.getByTestId('routing-editor-modal')
     const advancedTab = routingModal.locator('.n-tabs-tab', { hasText: '高级模式' })
     const simpleTab = routingModal.locator('.n-tabs-tab', { hasText: '简单模式' })
@@ -535,7 +549,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await routingModal.getByRole('button', { name: '取消' }).click()
     await expect(routing.getByText('domain(geosite:cn)')).toBeVisible()
 
-    await routing.getByRole('button', { name: '编辑路由' }).click()
+    await routing.locator('.n-card-header__extra').getByRole('button', { name: '编辑', exact: true }).click()
     const reopenedRoutingModal = page.getByTestId('routing-editor-modal')
     await reopenedRoutingModal.locator('.n-tabs-tab', { hasText: '简单模式' }).click()
     await reopenedRoutingModal.getByRole('button', { name: '应用到配置' }).click()
@@ -1380,7 +1394,9 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(mobileGroupModal.locator('.group-fixed-node-hint')).toBeVisible()
     await mobileGroupModal.getByRole('button', { name: '取消' }).click()
 
-    await page.getByTestId('global-card').getByRole('button', { name: '编辑设置' }).click()
+    await page.getByTestId('global-card').locator('.fold-card-toggle').click()
+    await page.getByTestId('global-card').locator('.fold-card-actions')
+      .getByRole('button', { name: '编辑' }).click()
     const globalModal = page.getByTestId('global-editor-modal')
     const globalModalBox = await globalModal.boundingBox()
     expect(globalModalBox).not.toBeNull()
@@ -1390,7 +1406,9 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     expect(await globalModal.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
     await globalModal.getByRole('button', { name: '取消' }).click()
 
-    await page.getByTestId('dns-card').getByRole('button', { name: '编辑 DNS' }).click()
+    await page.getByTestId('dns-card').locator('.fold-card-toggle').click()
+    await page.getByTestId('dns-card').locator('.fold-card-actions')
+      .getByRole('button', { name: '编辑' }).click()
     const dnsModal = page.getByTestId('dns-editor-modal')
     const dnsModalBox = await dnsModal.boundingBox()
     expect(dnsModalBox).not.toBeNull()
@@ -1400,7 +1418,8 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     expect(await dnsModal.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
     await dnsModal.getByRole('button', { name: '取消' }).click()
 
-    await page.getByTestId('routing-card').getByRole('button', { name: '编辑路由' }).click()
+    await page.getByTestId('routing-card').locator('.n-card-header__extra')
+      .getByRole('button', { name: '编辑', exact: true }).click()
     const routingModal = page.getByTestId('routing-editor-modal')
     const modalBox = await routingModal.boundingBox()
     expect(modalBox).not.toBeNull()

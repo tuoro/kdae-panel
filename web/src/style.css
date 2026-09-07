@@ -2098,6 +2098,86 @@ pre,
   gap: 10px;
 }
 
+/* 可折叠的配置节：全局设置与 DNS 设一次就不动，默认收成一行摘要，
+   把第一屏让给节点、订阅、分组和路由。 */
+.fold-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.fold-card-head {
+  min-height: 52px;
+  padding: 0 var(--space-4) 0 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.fold-card-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 52px;
+  padding: var(--space-3) var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.fold-card-toggle:hover {
+  background: var(--border-soft);
+}
+
+.fold-card-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.fold-card-toggle strong {
+  flex: 0 0 auto;
+  color: var(--text-bright);
+  font-size: var(--text-heading);
+  font-weight: 650;
+}
+
+.fold-card-summary {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fold-card-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text-faint);
+  transition: transform 0.15s ease;
+}
+
+.fold-card.open .fold-card-chevron {
+  transform: rotate(180deg);
+}
+
+.fold-card-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.fold-card-body {
+  padding: 0 var(--space-5) var(--space-5);
+}
+
 .orchestrate-page .panel-card {
   min-height: auto;
 }
@@ -2625,6 +2705,14 @@ pre,
 .column-hint {
   border-bottom: 1px dotted var(--border-strong);
   cursor: help;
+}
+
+.routing-version-bar {
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
+  display: flex;
+  justify-content: flex-end;
+  border-bottom: 1px solid var(--border-soft);
 }
 
 .routing-list {
