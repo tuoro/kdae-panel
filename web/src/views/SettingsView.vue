@@ -20,7 +20,7 @@ import {
   type FormInst,
   type FormRules,
 } from 'naive-ui'
-import { DownloadOutline, KeyOutline, LogoGithub, RefreshOutline, TrashOutline } from '@vicons/ionicons5'
+import { DownloadOutline, RefreshOutline, TrashOutline } from '@vicons/ionicons5'
 import { deleteJSON, getDownload, getJSON, postJSON, putJSON } from '../api/client'
 import type { GitHubCredentialStatus, PanelUpdatePayload, PanelUpdateStatus } from '../types/api'
 import PanelUpdateAction from '../components/PanelUpdateAction.vue'
@@ -244,14 +244,13 @@ onMounted(() => {
     <div class="page-toolbar">
       <div>
         <h2>面板设置</h2>
-        <NText depth="3">管理管理员凭据、面板更新与系统诊断</NText>
+        <NText depth="3">管理员凭据、面板更新与系统诊断</NText>
       </div>
     </div>
 
     <NGrid class="equal-height-grid" responsive="screen" cols="1 l:2" :x-gap="16" :y-gap="16">
       <NGridItem>
         <NCard title="修改管理员密码" class="panel-card">
-          <template #header-extra><NIcon size="20"><KeyOutline /></NIcon></template>
           <NAlert type="info" :bordered="false" class="settings-alert">
             修改成功后会注销该账户的所有旧会话，并为当前浏览器签发新会话。
           </NAlert>
@@ -288,7 +287,6 @@ onMounted(() => {
     </NGrid>
 
     <NCard title="GitHub API" class="panel-card settings-github">
-      <template #header-extra><NIcon size="20"><LogoGithub /></NIcon></template>
       <NAlert v-if="githubError" type="error" :bordered="false" class="card-alert">{{ githubError }}</NAlert>
       <template v-else>
         <div class="settings-github-heading">
