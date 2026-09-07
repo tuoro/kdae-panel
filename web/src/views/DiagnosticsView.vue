@@ -116,7 +116,10 @@ onMounted(() => void load())
         <NText depth="3">基于 systemd、dae 公开命令、配置、Geo、journald 与 Linux 标准接口检查</NText>
       </div>
       <div class="diagnostics-actions">
-        <NButton secondary :loading="loading" @click="load">
+        <!-- 这一页的主操作就是再跑一遍检查，它该承载强调色。
+             此前两个按钮都是次要样式，整页找不到一处青色——那不是克制，
+             是这一页没有指出"下一步该点哪"。 -->
+        <NButton type="primary" :loading="loading" @click="load">
           <template #icon><NIcon><RefreshOutline /></NIcon></template>重新检查
         </NButton>
         <NButton secondary :loading="exporting" @click="exportSysdump">

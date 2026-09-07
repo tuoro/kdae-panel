@@ -1213,9 +1213,12 @@ pre,
   box-shadow: 0 0 0 6px var(--border-soft);
 }
 
+/* "近 30 秒采样到过、此刻为 0"是一种不确定，不是一个动作，所以用暖色而非
+   品牌色。绿→黄→灰 是一条能读懂的递减序列；绿→青→灰 不是，青色夹在中间
+   会被读成"更好的一档"或"可以点"。 */
 .connection-live-beacon.recent {
-  background: var(--accent);
-  box-shadow: 0 0 0 6px var(--accent-soft);
+  background: var(--warn);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--warn) 12%, transparent);
 }
 
 .connection-pulse-metrics {
@@ -1581,7 +1584,7 @@ pre,
 }
 
 .connection-facet-drawer-modes button strong {
-  color: var(--accent);
+  color: var(--text-bright);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -1659,6 +1662,9 @@ pre,
   font-size: 11px;
 }
 
+/* 有意的例外：这条竖条是出站去向的分类色板（proxy 青 / direct 绿 / block 红），
+   不是状态也不是装饰。青色在这里担任分类色板中的一个色相，不受"青色只给动作"
+   那条规则约束——按规则扫全站时请跳过这里。 */
 .connection-route {
   padding-left: 10px;
   border-left: 2px solid var(--accent);
