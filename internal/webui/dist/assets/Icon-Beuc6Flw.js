@@ -1,4 +1,4 @@
-import{H as e,Ht as t,Kt as n,Ut as r,V as i,bn as a,ft as o,st as s,un as c,vn as l,wn as u}from"./client-DkW07njR.js";import{r as d}from"./text-lz9v6H13.js";import{g as f}from"./index-Ci85iMYB.js";var p=r(`icon`,`
+import{H as e,Ht as t,Kt as n,Ut as r,V as i,bn as a,ft as o,st as s,un as c,vn as l,wn as u}from"./client-DkW07njR.js";import{r as d}from"./text-lz9v6H13.js";import{g as f}from"./index-Dxee6kLX.js";var p=r(`icon`,`
  height: 1em;
  width: 1em;
  line-height: 1em;
