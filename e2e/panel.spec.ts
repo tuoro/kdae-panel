@@ -596,9 +596,10 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(page.locator('.dash-service')).toContainText('dae 运行中')
     await expect(page.locator('.dash-service')).toContainText('v1.0.6')
     await expect(page.locator('.dash-card .n-skeleton')).toHaveCount(0)
-    // 暂停等破坏性操作收进窄栏的"更多"菜单，避免与"无损重载"平起平坐
-    await page.getByRole('button', { name: '更多服务操作' }).click()
-    await page.locator('.n-dropdown-option').filter({ hasText: '暂停' }).click()
+    // 服务控制直接摆在窄栏上：它们是用户到这一页来做的事，不该多一次点击。
+    // 破坏性的"停止"用危险色区分，防误触靠确认对话框而不是藏起来。
+    await expect(page.locator('.dash-service').getByRole('button', { name: '停止' })).toBeVisible()
+    await page.locator('.dash-service').getByRole('button', { name: '暂停' }).click()
     await page.getByRole('button', { name: '确认暂停' }).click()
     await expect(page.locator('.dash-service')).toContainText('dae 已暂停')
     // 提示条只解释暂停意味着什么，状态本身由窄栏陈述，不重复告警
@@ -1600,11 +1601,8 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(suspendedAlert).toBeVisible()
     await expect(suspendedAlert.getByText('代理流量处理已停止，但 dae 进程仍在运行；点击“无损重载”即可恢复。')).toBeVisible()
     expect(await suspendedAlert.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
-    // 暂停已在暂停态下不可再点：操作收进窄栏的"更多"菜单
-    await page.getByRole('button', { name: '更多服务操作' }).click()
-    const suspendOption = page.locator('.n-dropdown-option').filter({ hasText: '暂停' })
-    await expect(suspendOption.locator('.n-dropdown-option-body')).toHaveClass(/--disabled/)
-    await page.keyboard.press('Escape')
+    // 已经是暂停态，"暂停"不可再点
+    await expect(page.locator('.dash-service').getByRole('button', { name: '暂停' })).toBeDisabled()
     await page.getByRole('button', { name: '无损重载' }).click()
     await expect(suspendedAlert).toHaveCount(0)
     overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
