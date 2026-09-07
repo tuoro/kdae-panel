@@ -651,15 +651,18 @@ onBeforeUnmount(() => {
       :width="mobile ? undefined : 420"
       :height="mobile ? '72vh' : undefined"
     >
-      <NDrawerContent title="当前可见 TCP 端点" closable :native-scrollbar="false">
-        <NText depth="3" class="connection-drawer-description">dae 当前持有的 TCP socket，按远端 IP:端口聚合</NText>
+      <NDrawerContent title="近 30 秒采样到的远端端点" closable :native-scrollbar="false">
+        <NText depth="3" class="connection-drawer-description">
+          dae 持有的 TCP socket，按远端 IP:端口聚合，取采样窗口内每个端点的峰值。
+          单次点采样几乎抓不到——直连不产生 userspace socket，代理短连接在两次采样之间生灭。
+        </NText>
         <div v-if="data?.endpoints.length" class="connection-endpoint-drawer-list">
           <div v-for="endpoint in data?.endpoints ?? []" :key="endpoint.address" class="connection-endpoint-row">
             <div><span class="mono">{{ endpoint.address }}</span><strong>{{ endpoint.count }}</strong></div>
             <span class="connection-endpoint-track"><i :style="{ width: `${Math.max(2, endpoint.count / endpointMaximum * 100)}%` }"></i></span>
           </div>
         </div>
-        <NEmpty v-else description="当前未捕获到 dae TCP 出站" />
+        <NEmpty v-else description="近 30 秒的离散采样未捕获到 dae 的 TCP 出站" />
       </NDrawerContent>
     </NDrawer>
   </div>

@@ -36,9 +36,10 @@ type Snapshot struct {
 }
 
 type socketObservation struct {
-	at  time.Time
-	tcp int
-	udp int
+	at        time.Time
+	tcp       int
+	udp       int
+	endpoints map[string]int
 }
 
 // Snapshotter 提供可注入的连接快照接口。
@@ -91,7 +92,7 @@ func (snapshotter *ProcSnapshotter) Snapshot(ctx context.Context, mainPID int) (
 	snapshotter.cached, snapshotter.cachedErr = snapshot, err
 	if err == nil {
 		snapshotter.observed = append(snapshotter.observed, socketObservation{
-			at: now, tcp: snapshot.OutboundTCP, udp: snapshot.UDPSockets,
+			at: now, tcp: snapshot.OutboundTCP, udp: snapshot.UDPSockets, endpoints: snapshot.Endpoints,
 		})
 	}
 	return snapshotter.withSampledPeaks(snapshot, now), err
@@ -102,10 +103,30 @@ func (snapshotter *ProcSnapshotter) withSampledPeaks(snapshot Snapshot, now time
 	for len(snapshotter.observed) > 0 && snapshotter.observed[0].at.Before(cutoff) {
 		snapshotter.observed = snapshotter.observed[1:]
 	}
+	// 端点和峰值用同一个窗口累积。单次点采样几乎抓不到 dae 的 socket——直连走
+	// eBPF 不产生 userspace socket，代理短连接在两次采样之间生灭——所以只报本次
+	// 采样的端点集合，结果长期是空的。取窗口内每个端点的采样峰值才有可能非空。
+	// 不修改传入快照自己的 map：它可能是缓存里那一份，会被后续调用复用。
+	merged := make(map[string]int, len(snapshot.Endpoints))
+	for address, count := range snapshot.Endpoints {
+		merged[address] = count
+	}
 	for _, observation := range snapshotter.observed {
 		snapshot.SampledTCPPeak = max(snapshot.SampledTCPPeak, observation.tcp)
 		snapshot.SampledUDPPeak = max(snapshot.SampledUDPPeak, observation.udp)
+		for address, count := range observation.endpoints {
+			if current, exists := merged[address]; exists {
+				merged[address] = max(current, count)
+				continue
+			}
+			if len(merged) >= snapshotter.maxEndpoints {
+				snapshot.Truncated = true
+				continue
+			}
+			merged[address] = count
+		}
 	}
+	snapshot.Endpoints = merged
 	return snapshot
 }
 
