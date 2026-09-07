@@ -12,6 +12,12 @@ import (
 	"github.com/tuoro/kdae-panel/internal/upstream"
 )
 
+// liveGitHubToken 与 upstream 包里的同名类型一样，让这些测试走认证额度而不是
+// 每出口 IP 每小时 60 次的匿名上限。CI 传的是 Actions 自带的 GITHUB_TOKEN。
+type liveGitHubToken struct{}
+
+func (liveGitHubToken) GitHubToken() string { return os.Getenv("KDAE_PANEL_GITHUB_TOKEN") }
+
 // TestLiveGeoUpdate 用真实上游走一遍完整的更新事务：下载、校验、落盘、reload，
 // 以及 reload 失败时的还原。需要外网，默认跳过。
 //
@@ -56,7 +62,7 @@ func TestLiveGeoUpdate(t *testing.T) {
 			manager, err := New(Options{
 				ConfigPath: filepath.Join(directory, "config.dae"),
 				StatePath:  filepath.Join(directory, "state.json"),
-				Fetcher:    upstream.NewGeoRegistry(),
+				Fetcher:    upstream.NewGeoRegistryWithGitHubToken(liveGitHubToken{}),
 				Reloader:   reloader,
 				Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 			})
