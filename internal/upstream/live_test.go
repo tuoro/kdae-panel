@@ -9,6 +9,14 @@ import (
 	"time"
 )
 
+// liveGitHubToken 让这些测试走认证额度。匿名调用 GitHub API 是每出口 IP
+// 每小时 60 次，而 Actions runner 的出口 IP 是共享的——这批测试一次要打
+// 四路上游（官方 dae、kdae、Loyalsoldier、v2fly）加面板自身，撞上限只是
+// 早晚问题，与当天有没有改代码无关。CI 传的是 Actions 自带的 GITHUB_TOKEN。
+type liveGitHubToken struct{}
+
+func (liveGitHubToken) GitHubToken() string { return os.Getenv("KDAE_PANEL_GITHUB_TOKEN") }
+
 // TestLiveUpstream 用真实上游验证版本发现与资产解析的契约。
 // 需要外网，默认跳过；CI 的上游契约作业会设置该环境变量来启用。
 func TestLiveUpstream(t *testing.T) {
@@ -18,7 +26,7 @@ func TestLiveUpstream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	registry := NewDefaultRegistry()
+	registry := NewDefaultRegistryWithGitHubToken(liveGitHubToken{})
 	platform := Platform{Architecture: "x86_64", Name: "x86_64"}
 
 	for _, source := range []Source{SourceOfficial, SourceKdae} {
@@ -90,7 +98,7 @@ func TestLiveGeoUpstream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	registry := NewGeoRegistry()
+	registry := NewGeoRegistryWithGitHubToken(liveGitHubToken{})
 	for _, info := range registry.Sources() {
 		t.Run(string(info.Source), func(t *testing.T) {
 			release, err := registry.Latest(ctx, info.Source)
@@ -134,7 +142,10 @@ func TestLivePanelRelease(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	tag, err := LatestPanelRelease(ctx, "tuoro", "kdae-panel")
+	// 走内部构造而不是 LatestPanelRelease：后者固定用匿名客户端，在 CI 的共享
+	// 出口 IP 上会先撞限流。被验证的契约是响应形状与 tag 命名，与是否带凭据无关。
+	client := newHTTPClientWithTokenSource(liveGitHubToken{})
+	tag, err := latestPanelRelease(ctx, client, PanelRepoOwner, PanelRepoName)
 	if err != nil {
 		t.Fatal(err)
 	}

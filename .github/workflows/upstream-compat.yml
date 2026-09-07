@@ -37,6 +37,11 @@ jobs:
       - name: 验证版本发现与 geo 数据契约
         env:
           KDAE_UPSTREAM_LIVE: '1'
+          # 匿名调用 GitHub API 是每出口 IP 每小时 60 次，而 runner 的出口 IP
+          # 是共享的。这一步一次要打四路上游加面板自身，此前常因额度耗尽而失败——
+          # 报的是限流，看起来却像上游契约破了。Actions 自带的 token 有每小时
+          # 1000 次，只读公开仓库足够，且 permissions 已限定 contents: read。
+          KDAE_PANEL_GITHUB_TOKEN: ${{ github.token }}
         # 两个包都要跑：upstream 验证上游的资产命名与校验和格式，
         # geodata 验证取到之后的落盘与回滚。只列前者的话，后者等于没写。
         run: go test -count=1 -run '^TestLive' -timeout=12m ./internal/upstream ./internal/geodata
