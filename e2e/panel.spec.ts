@@ -1150,8 +1150,15 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     }))
     await page.goto('/connections')
     await expect(page.getByRole('heading', { name: '连接活动', level: 2 })).toBeVisible()
-    await expect(page.locator('.connection-pulse')).toContainText('32当前 TCP 出站')
-    await expect(page.locator('.connection-snapshot-note')).toContainText('近 30 秒已采样峰值：TCP 38 · UDP 4')
+    // 头条是日志流水而不是 socket 点采样：后者在 dae 的架构下几乎总是 0
+    await expect(page.locator('.connection-pulse-primary')).toContainText('205')
+    await expect(page.locator('.connection-pulse-primary')).toContainText('最近 15 分钟新建连接')
+    // socket 数据降为次要一格，并如实称作采样峰值
+    await expect(page.locator('.connection-pulse-metrics')).toContainText('dae socket 峰值 TCP · UDP')
+    await expect(page.locator('.connection-pulse-metrics')).toContainText('38 · 4')
+    await expect(page.locator('.connection-snapshot-note')).toContainText('socket 峰值取自近 30 秒内的离散采样')
+    // 一个永远停在同一态的指示灯不是指示灯
+    await expect(page.locator('.connection-live-beacon')).toHaveCount(0)
     await expect(page.locator('.connection-facet-row', { hasText: 'api.github.com' })).toBeVisible()
     await page.locator('.connection-facet-row', { hasText: 'api.github.com' }).click()
     await expect(page.locator('tbody tr')).toHaveCount(1)
@@ -1230,7 +1237,7 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect(page.getByText(/启用 debug 会增加日志量和运行开销/)).toBeVisible()
     await expect(page.getByRole('button', { name: '切换为 debug' })).toBeVisible()
     await expect(page.getByText('当前日志级别不记录连接建立流水')).toBeVisible()
-    await expect(page.locator('.connection-pulse').getByText('未捕获', { exact: true })).toHaveCount(3)
+    await expect(page.locator('.connection-pulse-metrics').getByText('未捕获', { exact: true })).toHaveCount(1)
     await expect(page.locator('.connection-snapshot-note')).toContainText('“未捕获”不代表没有代理流量')
     await expect(page.getByRole('button', { name: 'TCP 端点 未捕获' })).toBeDisabled()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)

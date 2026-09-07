@@ -92,13 +92,20 @@ const entries = computed(() => data.value?.entries ?? [])
 const summary = computed(() => data.value?.summary)
 const snapshotLabel = computed(() => data.value?.snapshotAt ? formatDateTime(data.value.snapshotAt) : '等待快照')
 const socketReadable = computed(() => Boolean(data.value?.serviceRunning && data.value.snapshotOk))
-const tcpSocketCaptured = computed(() => socketReadable.value && (summary.value?.outboundTcp ?? 0) > 0)
-const udpSocketCaptured = computed(() => socketReadable.value && (summary.value?.udpSockets ?? 0) > 0)
-const hasCurrentSockets = computed(() => tcpSocketCaptured.value || udpSocketCaptured.value)
 const hasRecentSocketSamples = computed(() => socketReadable.value &&
   ((summary.value?.sampledTcpPeak ?? 0) > 0 || (summary.value?.sampledUdpPeak ?? 0) > 0))
-const tcpSocketValue = computed(() => visibleSocketCount(summary.value?.outboundTcp))
-const udpSocketValue = computed(() => visibleSocketCount(summary.value?.udpSockets))
+// 头条跟着所选时间窗走，不写死
+const windowLabel = computed(() =>
+  windowOptions.find((option) => option.value === windowMinutes.value)?.label ?? '所选时段')
+// 峰值取的是 30 秒窗口内所有离散采样的最大值。"当前"是单次点采样，在 dae 的
+// 架构下几乎总是 0——直连走 eBPF 不产生 userspace socket，代理短连接在两次
+// 采样之间生灭。同一份数据，峰值是唯一站得住的说法。
+const socketPeakValue = computed(() => {
+  if (!socketReadable.value) return visibleSocketCount(undefined)
+  const tcp = summary.value?.sampledTcpPeak ?? 0
+  const udp = summary.value?.sampledUdpPeak ?? 0
+  return tcp > 0 || udp > 0 ? `${tcp} · ${udp}` : '未捕获'
+})
 const endpointCountValue = computed(() => {
   if (!data.value) return '—'
   if (!data.value.serviceRunning) return '未运行'
@@ -111,9 +118,9 @@ const socketSnapshotNote = computed(() => {
   if (!data.value.snapshotOk) return '暂时无法读取 dae 进程的 socket 快照。'
   const seconds = Math.max(1, data.value.socketWindowSeconds)
   const peak = hasRecentSocketSamples.value
-    ? `近 ${seconds} 秒已采样峰值：TCP ${summary.value?.sampledTcpPeak ?? 0} · UDP ${summary.value?.sampledUdpPeak ?? 0}。`
+    ? `socket 峰值取自近 ${seconds} 秒内的离散采样。`
     : `近 ${seconds} 秒的离散采样尚未捕获到 dae socket。`
-  return `${peak}这里只统计 dae 进程持有的 userspace socket；短连接、直连和 eBPF 数据面连接可能不会出现，因此“未捕获”不代表没有代理流量。`
+  return `${peak}这里只统计 dae 进程持有的 userspace socket；短连接、直连和 eBPF 数据面连接不会出现，因此“未捕获”不代表没有代理流量——上方的新建连接才是完整的口径。`
 })
 const activeFilterCount = computed(() => Number(!!outbound.value) + Number(!!network.value) + Number(!!selectedFacet.value))
 const facetItems = computed(() => data.value?.facets[facetDimension.value] ?? [])
@@ -416,17 +423,22 @@ onBeforeUnmount(() => {
     </NAlert>
 
     <section class="connection-snapshot-summary" aria-label="连接摘要">
+      <!-- 头条用日志流水而不是 socket 点采样：后者在 dae 的架构下几乎总是 0，
+           把它放在第一位等于让整页最显眼的数字常年停在"未捕获"。删掉实时信标
+           同理——它的绿/黄/灰三态里有两态几乎不会出现，一个永远停在同一态的
+           指示灯不是指示灯。socket 数据降为次要一格，并如实称作采样峰值。 -->
       <div class="connection-pulse">
         <div class="connection-pulse-primary">
-          <span class="connection-live-beacon" :class="{ muted: !hasCurrentSockets, recent: !hasCurrentSockets && hasRecentSocketSamples }"></span>
-          <strong :class="{ textual: !tcpSocketCaptured }">{{ tcpSocketValue }}</strong>
-          <span class="connection-pulse-primary-label">当前 TCP 出站</span>
+          <strong>{{ summary?.windowEvents ?? '—' }}</strong>
+          <span class="connection-pulse-primary-label">{{ windowLabel }}新建连接</span>
         </div>
         <dl class="connection-pulse-metrics">
-          <div><dt>当前 UDP</dt><dd :class="{ textual: !udpSocketCaptured }">{{ udpSocketValue }}</dd></div>
-          <div><dt>新建连接</dt><dd>{{ summary?.windowEvents ?? '—' }}</dd></div>
           <div><dt>客户端</dt><dd>{{ summary?.windowClients ?? '—' }}</dd></div>
           <div><dt>目标</dt><dd>{{ summary?.windowTargets ?? '—' }}</dd></div>
+          <div>
+            <dt>dae socket 峰值 TCP · UDP</dt>
+            <dd :class="{ textual: socketPeakValue === '未捕获' || !socketReadable }">{{ socketPeakValue }}</dd>
+          </div>
         </dl>
         <NButton
           text

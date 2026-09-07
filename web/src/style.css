@@ -1199,28 +1199,6 @@ pre,
   line-height: 1.2;
 }
 
-.connection-live-beacon {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 6px rgba(74, 222, 128, 0.12);
-}
-
-.connection-live-beacon.muted {
-  background: var(--text-faint);
-  box-shadow: 0 0 0 6px var(--border-soft);
-}
-
-/* "近 30 秒采样到过、此刻为 0"是一种不确定，不是一个动作，所以用暖色而非
-   品牌色。绿→黄→灰 是一条能读懂的递减序列；绿→青→灰 不是，青色夹在中间
-   会被读成"更好的一档"或"可以点"。 */
-.connection-live-beacon.recent {
-  background: var(--warn);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--warn) 12%, transparent);
-}
-
 .connection-pulse-metrics {
   min-width: 0;
   margin: 0;
