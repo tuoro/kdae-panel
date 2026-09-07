@@ -1069,6 +1069,19 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
   await test.step('连接活动分别展示历史流水与实时出站端点', async () => {
     const reference = Date.now()
     const at = (secondsAgo: number) => new Date(reference - secondsAgo * 1000).toISOString()
+    // 秒级快照端点也要受控：否则它会用真实（全零）数据覆盖上面 mock 的
+    // socket 峰值与端点，让断言时灵时不灵。
+    await page.route('**/api/v1/connections/snapshot', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        snapshotAt: at(0), snapshotOk: true, serviceRunning: true, socketWindowSeconds: 30,
+        summary: { outboundTcp: 32, udpSockets: 1, sampledTcpPeak: 38, sampledUdpPeak: 4 },
+        endpoints: [
+          { address: '203.0.113.10:443', count: 2 },
+          { address: '203.0.113.90:8443', count: 1 },
+        ],
+      }),
+    }))
     await page.route('**/api/v1/connections?*', (route) => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({
@@ -1218,6 +1231,14 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
     await page.unroute('**/api/v1/connections?*')
+    await page.route('**/api/v1/connections/snapshot', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        snapshotAt: at(0), snapshotOk: true, serviceRunning: true, socketWindowSeconds: 30,
+        summary: { outboundTcp: 0, udpSockets: 0, sampledTcpPeak: 0, sampledUdpPeak: 0 },
+        endpoints: [],
+      }),
+    }))
     await page.route('**/api/v1/connections?*', (route) => route.fulfill({
       contentType: 'application/json',
       body: JSON.stringify({

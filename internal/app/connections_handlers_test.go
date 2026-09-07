@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -515,5 +516,51 @@ func TestConnectionsEndpointRejectsInvalidBuckets(t *testing.T) {
 		if recorder.Code != http.StatusBadRequest {
 			t.Fatalf("buckets=%q 状态码 = %d，响应 = %s", value, recorder.Code, recorder.Body.String())
 		}
+	}
+}
+
+// 快照端点必须只做快照：完整端点每次都要跑 systemctl、拉 journald、解析日志
+// 并读配置，按秒轮询跑一遍不可接受。
+func TestConnectionsSnapshotEndpointSkipsLogsAndConfig(t *testing.T) {
+	hostService := &stubHostService{logs: []host.LogEntry{
+		{Timestamp: time.Now().UTC(), Message: `level=info msg="192.0.2.1:1 <-> a.example:443" ip=203.0.113.1:443 network=tcp4 outbound=proxy`},
+	}}
+	application, err := NewWithDependencies(Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)), Dependencies{
+		Dae: stubDaeService{}, Host: hostService,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/connections/snapshot", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d，响应 = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, field := range []string{"entries", "facets", "series", "logLevel"} {
+		if strings.Contains(body, `"`+field+`"`) {
+			t.Fatalf("快照端点带上了 %s，日志与曲线不随秒级采样变化，重复传输没有意义: %s", field, body)
+		}
+	}
+	var response connectionSnapshotResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.SocketWindowSeconds != int(daeconn.RecentSampleWindow/time.Second) {
+		t.Fatalf("采样窗口 = %d", response.SocketWindowSeconds)
+	}
+}
+
+func TestConnectionsSnapshotEndpointRequiresHostService(t *testing.T) {
+	application, err := NewWithDependencies(Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)), Dependencies{
+		Dae: stubDaeService{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/connections/snapshot", nil))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("状态码 = %d", recorder.Code)
 	}
 }

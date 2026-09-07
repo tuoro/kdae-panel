@@ -16,8 +16,12 @@ import (
 )
 
 const (
-	tcpEstablished      = "01"
-	defaultCacheTTL     = 2 * time.Second
+	tcpEstablished = "01"
+	// 缓存主要用于合并并发标签页的扫描，而不是限制采样率：快照端点按秒轮询，
+	// 两秒的缓存会让一半的轮询拿到旧样本，采样窗口里的样本数直接减半。
+	// 取 800ms，既能让 1 秒轮询基本每次都拿到新样本，多开标签页时每秒也不会
+	// 超过约一次 /proc 扫描。
+	defaultCacheTTL     = 800 * time.Millisecond
 	defaultMaxEndpoints = 200
 	// RecentSampleWindow 是同一 dae PID 的离散 socket 样本保留窗口。
 	RecentSampleWindow = 30 * time.Second

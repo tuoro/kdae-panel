@@ -30,7 +30,7 @@ import {
 } from '@vicons/ionicons5'
 import { getJSON } from '../api/client'
 import { useMobileViewport } from '../composables/useMobileViewport'
-import type { ConnectionEvent, ConnectionFacet, ConnectionFacets, ConnectionsResponse } from '../types/api'
+import type { ConnectionEvent, ConnectionFacet, ConnectionFacets, ConnectionSnapshot, ConnectionsResponse } from '../types/api'
 import { formatDateTime, formatElapsedSince } from '../utils/format'
 import { updateDaeLogLevel, type DaeLogLevel } from '../utils/loglevel'
 
@@ -56,7 +56,9 @@ const selectedFacet = ref<{ dimension: keyof ConnectionFacets, id: string } | nu
 const sortOrder = ref<'descend' | 'ascend'>('descend')
 const now = ref(Date.now())
 let refreshTimer: number | undefined
+let snapshotTimer: number | undefined
 let clockTimer: number | undefined
+let snapshotInFlight = false
 let reloadQueued = false
 
 const limitOptions = [100, 200, 500, 1000, 2000].map((value) => ({ label: `${value} 条`, value }))
@@ -342,6 +344,32 @@ async function load(silent = false) {
   }
 }
 
+// socket 峰值与端点都取自 30 秒窗口内的离散采样。跟着 5 秒的完整轮询走只能
+// 凑出六个样本，而 dae 的 socket 本就难在单次采样里抓到——所以单独按秒轮询
+// 一个只做快照的轻端点（完整端点每次还要跑 systemctl、拉 journald、解析日志）。
+// 只在页面可见时跑：这是真实的 /proc 扫描开销，不该在后台标签页里持续发生。
+async function loadSnapshot() {
+  if (snapshotInFlight || !data.value) return
+  snapshotInFlight = true
+  try {
+    const snapshot = await getJSON<ConnectionSnapshot>('/api/v1/connections/snapshot')
+    if (!data.value) return
+    data.value = {
+      ...data.value,
+      snapshotAt: snapshot.snapshotAt,
+      snapshotOk: snapshot.snapshotOk,
+      serviceRunning: snapshot.serviceRunning,
+      socketWindowSeconds: snapshot.socketWindowSeconds,
+      endpoints: snapshot.endpoints,
+      summary: { ...data.value.summary, ...snapshot.summary },
+    }
+  } catch {
+    // 快照失败不该打断流水：完整轮询仍会在 5 秒后纠正这里的状态
+  } finally {
+    snapshotInFlight = false
+  }
+}
+
 async function enableConnectionHistory(targetLevel: DaeLogLevel) {
   logLevelSaving.value = true
   try {
@@ -380,11 +408,15 @@ onMounted(() => {
   refreshTimer = window.setInterval(() => {
     if (autoRefresh.value && document.visibilityState === 'visible') void load(true)
   }, 5000)
+  snapshotTimer = window.setInterval(() => {
+    if (autoRefresh.value && document.visibilityState === 'visible') void loadSnapshot()
+  }, 1000)
   clockTimer = window.setInterval(() => { now.value = Date.now() }, 1000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 onBeforeUnmount(() => {
   window.clearInterval(refreshTimer)
+  window.clearInterval(snapshotTimer)
   window.clearInterval(clockTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
