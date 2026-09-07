@@ -733,3 +733,29 @@ func TestApplyRejectsEmptyContent(t *testing.T) {
 		t.Fatalf("旧数据不该被动过: %q", content)
 	}
 }
+
+// 两个文件都缺时不该发两条除文件名外一字不差的告警——写入目录本来就是同一个。
+func TestWarningsMergesMissingFiles(t *testing.T) {
+	files := []File{
+		{Name: "geoip.dat", Present: false},
+		{Name: "geosite.dat", Present: false},
+	}
+	result := warnings(files, "/etc/dae")
+	if len(result) != 1 {
+		t.Fatalf("缺失告警条数 = %d，want 1: %q", len(result), result)
+	}
+	if !strings.Contains(result[0], "geoip.dat") || !strings.Contains(result[0], "geosite.dat") {
+		t.Fatalf("合并后的告警没有列全文件名: %q", result[0])
+	}
+}
+
+// 被遮蔽的副本各自不同，仍然逐条说明。
+func TestWarningsKeepsShadowedPerFile(t *testing.T) {
+	files := []File{
+		{Name: "geoip.dat", Present: true, Path: "/etc/dae/geoip.dat", Shadowed: []string{"/usr/share/dae/geoip.dat"}},
+		{Name: "geosite.dat", Present: true, Path: "/etc/dae/geosite.dat", Shadowed: []string{"/usr/share/dae/geosite.dat"}},
+	}
+	if result := warnings(files, "/etc/dae"); len(result) != 2 {
+		t.Fatalf("遮蔽告警条数 = %d，want 2: %q", len(result), result)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/tuoro/kdae-panel/internal/atomicfile"
@@ -242,8 +243,12 @@ func (m *Manager) Status(ctx context.Context) Status {
 }
 
 // warnings 说明那些"更新会成功、但结果可能出乎意料"的情况。
+//
+// 缺失文件合并成一条：两个文件都缺时，逐个发一条会得到除文件名外一字不差的
+// 两条告警，而写入目录本来就是同一个。被遮蔽的副本各自不同，仍然逐条说明。
 func warnings(files []File, configDir string) []string {
 	var result []string
+	var missing []string
 	for _, file := range files {
 		if len(file.Shadowed) > 0 {
 			result = append(result, fmt.Sprintf(
@@ -251,9 +256,13 @@ func warnings(files []File, configDir string) []string {
 				file.Name, file.Path, file.Shadowed))
 		}
 		if !file.Present {
-			result = append(result, fmt.Sprintf(
-				"%s 尚未安装，将写入 %s（dae 搜索顺序里优先级最高的可写目录）", file.Name, configDir))
+			missing = append(missing, file.Name)
 		}
+	}
+	if len(missing) > 0 {
+		result = append(result, fmt.Sprintf(
+			"%s 尚未安装，将写入 %s（dae 搜索顺序里优先级最高的可写目录）",
+			strings.Join(missing, "、"), configDir))
 	}
 	return result
 }
