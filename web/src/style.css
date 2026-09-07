@@ -143,7 +143,7 @@ textarea {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--accent-contrast);
   font-size: 18px;
   font-weight: 900;
@@ -153,7 +153,7 @@ textarea {
 .brand-mark.large {
   width: 48px;
   height: 48px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   font-size: 24px;
 }
 
@@ -233,14 +233,14 @@ textarea {
 }
 
 .section-tab {
-  padding: 8px 14px;
+  padding: var(--space-2) var(--space-3);
   flex: 0 0 auto;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 550;
   line-height: 1;
   text-decoration: none;
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .section-tab:hover {
@@ -274,12 +274,18 @@ textarea {
   font-size: 22px;
 }
 
+/* 每页标题上方的这行小字是装饰，不该每页消耗一次品牌色——侧栏已经写了
+   产品名。登录与初始化是品牌时刻，页面上几乎没有别的元素，那里保留青色。 */
 .eyebrow {
   margin: 0;
-  color: var(--accent) !important;
-  font-size: 10px;
+  color: var(--text-faint) !important;
+  font-size: var(--text-meta);
   font-weight: 800;
   letter-spacing: 0.18em;
+}
+
+.auth-intro .eyebrow {
+  color: var(--accent) !important;
 }
 
 .account {
@@ -481,7 +487,7 @@ textarea {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
 .page-toolbar {
@@ -489,12 +495,13 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
 .page-toolbar h2 {
-  margin: 0 0 4px;
-  font-size: 18px;
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-title);
+  font-weight: 700;
 }
 
 .metric-card {
@@ -897,21 +904,29 @@ textarea {
   justify-content: flex-end;
 }
 
+/* 键值列表原来每行一条下边框。十来行就是十来条横线，和明细列表是同一个
+   毛病——分组靠间距，线只留给真正的边界。 */
 .details-list {
-  margin: 0 0 18px;
+  margin: 0 0 var(--space-4);
+  display: grid;
+  gap: var(--space-2);
 }
 
 .details-list > div {
-  min-height: 38px;
+  min-height: 24px;
   display: grid;
   grid-template-columns: minmax(88px, 0.35fr) 1fr;
   align-items: baseline;
-  gap: 16px;
-  border-bottom: 1px solid var(--border-soft);
+  gap: var(--space-4);
 }
 
 .details-list dt {
   color: var(--text-muted);
+  font-size: var(--text-body);
+}
+
+.details-list dd {
+  font-size: var(--text-body);
 }
 
 .details-list dd {
@@ -968,7 +983,7 @@ textarea {
   max-height: min(62vh, 680px);
   overflow: auto;
   border: 1px solid var(--border-soft);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-deep);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -1124,7 +1139,7 @@ pre,
   justify-content: space-between;
   gap: 16px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-raised);
 }
 
@@ -1259,7 +1274,7 @@ pre,
   overflow: hidden;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .connection-toolbar {
@@ -1352,7 +1367,7 @@ pre,
   white-space: nowrap;
   background: transparent;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
@@ -1404,7 +1419,7 @@ pre,
   text-align: left;
   background: transparent;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
@@ -1540,7 +1555,7 @@ pre,
   text-align: left;
   background: var(--bg-raised);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
 }
 
@@ -1753,6 +1768,7 @@ pre,
   display: grid;
 }
 
+/* 与 .connection-route 同一个有意的例外：出站去向的分类色板 */
 .connection-mobile-row {
   min-width: 0;
   padding: 16px;
@@ -1931,7 +1947,7 @@ pre,
 .outline-node.root {
   padding: 18px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-raised);
 }
 
@@ -1951,7 +1967,7 @@ pre,
 
 .outline-heading code {
   min-width: 0;
-  color: var(--accent);
+  color: var(--text-bright);
   font-size: 13px;
   font-weight: 700;
   white-space: normal;
@@ -1984,7 +2000,7 @@ pre,
   display: flex;
   flex-direction: column;
   gap: 12px;
-  border-left: 1px solid var(--accent-soft);
+  border-left: 1px solid var(--border);
 }
 
 .settings-dump {
@@ -2484,9 +2500,10 @@ pre,
   justify-content: space-between;
 }
 
+/* 标识符靠等宽字体区分即可，不需要再染上品牌色——它不是可点的东西 */
 .group-head code {
-  color: var(--accent);
-  font-size: 14px;
+  color: var(--text-bright);
+  font-size: var(--text-heading);
   font-weight: 700;
 }
 
@@ -2582,7 +2599,7 @@ pre,
 
 .routing-arrow {
   flex: 0 0 auto;
-  color: var(--accent);
+  color: var(--text-faint);
 }
 
 .routing-spacer {
@@ -2761,7 +2778,7 @@ pre,
   gap: 12px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius);
   background: var(--bg-deep);
 }
 
@@ -2828,7 +2845,7 @@ pre,
   padding: 13px;
   align-items: flex-start !important;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 
 .routing-mode-option strong,
@@ -3939,7 +3956,7 @@ pre,
 .dash-card {
   padding: 18px 20px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-raised);
 }
 
@@ -4002,7 +4019,7 @@ pre,
   justify-content: space-between;
   gap: 20px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-raised);
 }
 
@@ -4045,7 +4062,7 @@ pre,
 .dash-dot.tone-ok { background: var(--ok); }
 .dash-dot.tone-warn { background: var(--warn); }
 .dash-dot.tone-danger { background: var(--danger); }
-.dash-dot.tone-accent { background: var(--accent); }
+.dash-dot.tone-info { background: var(--text-muted); }
 
 .dash-beacon {
   width: 12px;
@@ -4262,7 +4279,7 @@ pre,
 }
 
 .dash-telemetry-copy code {
-  color: var(--accent);
+  color: var(--text-bright);
   font-size: 12px;
 }
 
@@ -4308,7 +4325,7 @@ pre,
 
 .dash-group {
   min-width: 0;
-  color: var(--accent);
+  color: var(--text-bright);
   font-size: 14px;
   font-weight: 700;
   overflow-wrap: anywhere;
@@ -4416,7 +4433,7 @@ pre,
   align-items: center;
   gap: 12px;
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
   text-align: center;
 }
 

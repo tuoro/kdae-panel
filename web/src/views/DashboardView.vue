@@ -661,7 +661,7 @@ watch(() => outbounds.value.map((row) => row.target && `${row.target.host}:${row
         </div>
         <ul v-else class="dash-attention">
           <li v-for="item in attention" :key="item.id">
-            <span class="dash-dot" :class="`tone-${item.tone === 'info' ? 'accent' : item.tone}`" />
+            <span class="dash-dot" :class="`tone-${item.tone}`" />
             <div>
               <strong>{{ item.title }}</strong>
               <small v-if="item.detail">{{ item.detail }}</small>
