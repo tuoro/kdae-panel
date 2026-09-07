@@ -334,6 +334,23 @@ test('首次初始化到编排保存的完整链路', async ({ page }) => {
     // 收起时那一行摘要必须说清里面有什么，否则用户不敢不展开
     await expect(dns).toContainText('2 个上游 · 4 条规则')
     await dns.locator('.fold-card-toggle').click()
+
+    // 手机上展开后，卡片头必须拆成标题行与动作行。挤在一行会溢出视口，
+    // 而 html/body 是 overflow-x: clip，溢出的部分不会有滚动条、直接被裁掉：
+    // DNS 的「编辑」曾整个跑到视口外，收起用的箭头也被挤没。
+    await page.setViewportSize({ width: 390, height: 844 })
+    for (const card of [global, dns]) {
+      const head = card.locator('.fold-card-head')
+      expect(await head.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
+      await expect(card.locator('.fold-card-chevron')).toBeVisible()
+      const edit = card.locator('.fold-card-actions').getByRole('button', { name: '编辑' })
+      const box = await edit.boundingBox()
+      expect(box, '「编辑」应在视口内').not.toBeNull()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+    }
+    await page.setViewportSize({ width: 1600, height: 900 })
+
     await dns.locator('.fold-card-actions').getByRole('button', { name: '编辑' }).click()
     const dnsModal = page.getByTestId('dns-editor-modal')
     const dnsSimpleTab = dnsModal.locator('.n-tabs-tab', { hasText: '简单模式' })

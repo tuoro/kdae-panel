@@ -243,9 +243,15 @@ textarea {
   border-radius: var(--radius);
 }
 
-.section-tab:hover {
-  color: var(--text-bright);
-  background: var(--border-soft);
+/* 所有自绘控件的悬停反馈都要问一句设备有没有指针。触摸屏点一下会套用 :hover
+   并一直保留到你点别处，于是"悬停高亮"在手机上变成"点完卡住的灰块"——它既
+   不表示选中，也不会自己消失，只会让人以为界面坏了。
+   :focus-visible 不受影响，键盘焦点在任何设备上都该看得见。 */
+@media (hover: hover) {
+  .section-tab:hover {
+    color: var(--text-bright);
+    background: var(--border-soft);
+  }
 }
 
 .section-tab.active {
@@ -730,8 +736,10 @@ textarea {
   cursor: pointer;
 }
 
-.diagnostics-count:hover:not(:disabled) {
-  background: var(--border-soft);
+@media (hover: hover) {
+  .diagnostics-count:hover:not(:disabled) {
+    background: var(--border-soft);
+  }
 }
 
 .diagnostics-count.active {
@@ -780,8 +788,10 @@ textarea {
   cursor: pointer;
 }
 
-.diagnostics-healthy-toggle:hover {
-  background: var(--border-soft);
+@media (hover: hover) {
+  .diagnostics-healthy-toggle:hover {
+    background: var(--border-soft);
+  }
 }
 
 .diagnostics-healthy-toggle:focus-visible {
@@ -825,8 +835,10 @@ textarea {
   transform: rotate(180deg);
 }
 
-.diagnostics-healthy-row.expandable:hover .diagnostics-healthy-chevron {
-  color: var(--accent);
+@media (hover: hover) {
+  .diagnostics-healthy-row.expandable:hover .diagnostics-healthy-chevron {
+    color: var(--accent);
+  }
 }
 
 .diagnostics-healthy-list {
@@ -868,8 +880,10 @@ textarea {
   cursor: pointer;
 }
 
-.diagnostics-healthy-row.expandable:hover {
-  background: var(--border-soft);
+@media (hover: hover) {
+  .diagnostics-healthy-row.expandable:hover {
+    background: var(--border-soft);
+  }
 }
 
 .diagnostics-healthy-row:focus-visible {
@@ -1353,9 +1367,11 @@ pre,
   cursor: pointer;
 }
 
-.tab-switch-item:hover {
-  color: var(--text-bright);
-  background: var(--border-soft);
+@media (hover: hover) {
+  .tab-switch-item:hover {
+    color: var(--text-bright);
+    background: var(--border-soft);
+  }
 }
 
 .tab-switch-item:focus-visible {
@@ -1368,8 +1384,10 @@ pre,
   background: var(--accent);
 }
 
-.tab-switch-item.active:hover {
-  background: var(--accent-hover);
+@media (hover: hover) {
+  .tab-switch-item.active:hover {
+    background: var(--accent-hover);
+  }
 }
 
 /* 这个选择器要比上面的 .connection-facets > header > div{display:grid} 更 specific，
@@ -1405,9 +1423,14 @@ pre,
   cursor: pointer;
 }
 
-.connection-facet-row:hover,
 .connection-facet-row:focus-visible {
   background: var(--accent-wash);
+}
+
+@media (hover: hover) {
+  .connection-facet-row:hover {
+    background: var(--accent-wash);
+  }
 }
 
 .connection-facet-row:focus-visible {
@@ -1541,10 +1564,16 @@ pre,
   cursor: pointer;
 }
 
-.connection-facet-drawer-modes button:hover,
 .connection-facet-drawer-modes button:focus-visible {
   border-color: var(--border-strong);
   color: var(--text-bright);
+}
+
+@media (hover: hover) {
+  .connection-facet-drawer-modes button:hover {
+    border-color: var(--border-strong);
+    color: var(--text-bright);
+  }
 }
 
 .connection-facet-drawer-modes button:focus-visible {
@@ -1888,8 +1917,10 @@ pre,
   border-bottom: 1px solid var(--border-soft);
 }
 
-.log-row:hover {
-  background: var(--accent-wash);
+@media (hover: hover) {
+  .log-row:hover {
+    background: var(--accent-wash);
+  }
 }
 
 .log-row time,
@@ -2113,8 +2144,10 @@ pre,
   cursor: pointer;
 }
 
-.fold-card-toggle:hover {
-  background: var(--border-soft);
+@media (hover: hover) {
+  .fold-card-toggle:hover {
+    background: var(--border-soft);
+  }
 }
 
 .fold-card-toggle:focus-visible {
@@ -3256,6 +3289,31 @@ pre,
     flex-direction: column;
     gap: 10px;
   }
+
+  /* 展开后卡片头放不下标题加动作：DNS 的动作区要 362px，而这里只有 316px。
+     挤在一行的后果不是"紧凑"而是坏掉——标题会压到版本下拉框上，收起用的
+     箭头被挤没，「编辑」整个溢出到视口外，又被 overflow-x: clip 裁掉，
+     于是既看不见也点不着。拆成两行：标题一行，动作一行。
+     收起态不受影响，那时本来就不渲染动作。 */
+  .fold-card.open .fold-card-head {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0;
+    padding: 0 0 var(--space-3);
+  }
+
+  .fold-card.open .fold-card-actions {
+    flex-wrap: wrap;
+    /* 与标题左对齐：toggle 的左内边距同样是 --space-5 */
+    padding: 0 var(--space-5);
+  }
+
+  /* 版本控件与「编辑」换行后不再左右相邻，这条竖线会变成一段悬空的短线。 */
+  .fold-card.open .section-version-controls {
+    border-right: 0;
+    margin-right: 0;
+    padding-right: 0;
+  }
 }
 
 @media (max-width: 767px) {
@@ -4140,8 +4198,10 @@ pre,
   white-space: nowrap;
 }
 
-.dash-link:hover {
-  color: var(--accent-hover);
+@media (hover: hover) {
+  .dash-link:hover {
+    color: var(--accent-hover);
+  }
 }
 
 .dash-link:focus-visible {
